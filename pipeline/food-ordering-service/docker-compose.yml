@@ -1,0 +1,76 @@
+version: '3.8'
+
+# food-ordering-service — NestJS Backend
+# Port: 5000 (API), 5432 (Postgres), 5672/15672 (RabbitMQ)
+# Usage: docker compose up -d
+# Build: docker compose build
+
+services:
+  food-ordering-service:
+    image: food-ordering-service:${IMAGE_TAG:-latest}
+    build:
+      context: ../../src/food-ordering-service
+      dockerfile: Dockerfile
+      args:
+        - NODE_ENV=${NODE_ENV:-production}
+    container_name: food-ordering-service
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-5000}:5000"
+    environment:
+      - NODE_ENV=${NODE_ENV:-production}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@food-ordering-db:5432/${POSTGRES_DB:-food_ordering}
+      - RABBITMQ_URL=amqp://${RABBITMQ_USER:-nathee}:${RABBITMQ_PASS:-nathee}@food-ordering-rabbitmq:5672/
+      - JWT_SECRET=${JWT_SECRET:-changeme}
+      - PORT=5000
+    depends_on:
+      - food-ordering-db
+      - food-ordering-rabbitmq
+    networks:
+      - jenkins-network
+      - food-ordering-network
+
+  food-ordering-db:
+    image: postgres:15-alpine
+    container_name: food-ordering-db
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-food_ordering}
+    volumes:
+      - food_ordering_db_data:/var/lib/postgresql/data
+    networks:
+      - food-ordering-network
+
+  food-ordering-rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: food-ordering-rabbitmq
+    restart: unless-stopped
+    hostname: food-ordering-rabbitmq
+    ports:
+      - "${RABBITMQ_PORT:-5673}:5672"
+      - "${RABBITMQ_MANAGEMENT_PORT:-15673}:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-nathee}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-nathee}
+      - RABBITMQ_DEFAULT_VHOST=/
+    volumes:
+      - food_ordering_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - food-ordering-network
+
+volumes:
+  food_ordering_db_data:
+    driver: local
+  food_ordering_rabbitmq_data:
+    driver: local
+
+networks:
+  jenkins-network:
+    external: true
+  food-ordering-network:
+    name: food-ordering-network
+    driver: bridge

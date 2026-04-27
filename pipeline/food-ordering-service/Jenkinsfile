@@ -1,0 +1,83 @@
+pipeline {
+    agent any
+
+    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
+    environment {
+        // food-ordering-service (NestJS Backend)
+        REPO_BACKEND       = 'https://github.com/nateesoft/food-ordering-service.git'
+        BRANCH_BACKEND     = 'main'
+        BACKEND_PORT       = '5000'
+
+        // docker image tag ใช้ BUILD_NUMBER เพื่อ traceability
+        IMAGE_TAG          = "${BUILD_NUMBER}"
+    }
+
+    stages {
+
+        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://vault:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/jenkins/github',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'GITHUB_USER',  vaultKey: 'username'],
+                            [envVar: 'GITHUB_TOKEN', vaultKey: 'token']
+                        ]
+                    ]]
+                ) {
+                    dir('src') {
+                        sh """
+                            git clone -b ${BRANCH_BACKEND} \
+                                https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/nateesoft/food-ordering-service.git .
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─── Step 2: Build ─────────────────────────────────────────────────────
+        stage('Build') {
+            steps {
+                sh """
+                    docker compose -f pipeline/food-ordering-service/docker-compose.yml \
+                        build \
+                        --build-arg IMAGE_TAG=${IMAGE_TAG}
+                """
+            }
+        }
+
+        // ─── Step 3: Deploy ────────────────────────────────────────────────────
+        stage('Deploy Backend') {
+            steps {
+                sh """
+                    IMAGE_TAG=${IMAGE_TAG} \
+                    BACKEND_PORT=${BACKEND_PORT} \
+                    docker compose -f pipeline/food-ordering-service/docker-compose.yml \
+                        up -d --force-recreate
+                """
+                echo "Backend deployed → http://localhost:${BACKEND_PORT}"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo """
+            ✅ Deployment successful
+               Backend   → http://localhost:${BACKEND_PORT}
+            """
+        }
+        failure {
+            echo "❌ Pipeline failed — check the stage logs above."
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

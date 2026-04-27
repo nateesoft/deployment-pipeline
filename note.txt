@@ -1,0 +1,6 @@
+Initial root token
+VAULT_TOKEN_REMOVED
+
+Key 1
+KEY_REMOVED
+

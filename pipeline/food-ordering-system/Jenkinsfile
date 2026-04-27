@@ -1,0 +1,83 @@
+pipeline {
+    agent any
+
+    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
+    environment {
+        // food-ordering-system (Next.js Frontend)
+        REPO_FRONTEND      = 'https://github.com/nateesoft/food-ordering-system.git'
+        BRANCH_FRONTEND    = 'main'
+        FRONTEND_PORT      = '3000'
+
+        // docker image tag ใช้ BUILD_NUMBER เพื่อ traceability
+        IMAGE_TAG          = "${BUILD_NUMBER}"
+    }
+
+    stages {
+
+        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://vault:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/jenkins/github',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'GITHUB_USER',  vaultKey: 'username'],
+                            [envVar: 'GITHUB_TOKEN', vaultKey: 'token']
+                        ]
+                    ]]
+                ) {
+                    dir('src') {
+                        sh """
+                            git clone -b ${BRANCH_FRONTEND} \
+                                https://${GITHUB_USER}:${GITHUB_TOKEN}@github.com/nateesoft/food-ordering-system.git .
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─── Step 2: Build ─────────────────────────────────────────────────────
+        stage('Build') {
+            steps {
+                sh """
+                    docker compose -f pipeline/food-ordering-system/docker-compose.yml \
+                        build \
+                        --build-arg IMAGE_TAG=${IMAGE_TAG}
+                """
+            }
+        }
+
+        // ─── Step 3: Deploy ────────────────────────────────────────────────────
+        stage('Deploy Frontend') {
+            steps {
+                sh """
+                    IMAGE_TAG=${IMAGE_TAG} \
+                    FRONTEND_PORT=${FRONTEND_PORT} \
+                    docker compose -f pipeline/food-ordering-system/docker-compose.yml \
+                        up -d --force-recreate
+                """
+                echo "Frontend deployed → http://localhost:${FRONTEND_PORT}"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo """
+            ✅ Deployment successful
+               Frontend  → http://localhost:${FRONTEND_PORT}
+            """
+        }
+        failure {
+            echo "❌ Pipeline failed — check the stage logs above."
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
