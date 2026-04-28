@@ -1,0 +1,25 @@
+services:
+  vault:
+    image: hashicorp/vault:1.15.5
+    container_name: vault
+    restart: unless-stopped
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    command: vault server -config=/vault/config/config.hcl
+    environment:
+      - VAULT_ADDR=http://127.0.0.1:8200
+    volumes:
+      - ./config:/vault/config
+      - vault_data:/vault/file
+    networks:
+      - jenkins-network
+
+volumes:
+  vault_data:
+
+networks:
+  jenkins-network:
+    name: jenkins-network
+    driver: bridge
