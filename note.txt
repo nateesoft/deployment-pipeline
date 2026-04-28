@@ -1,1 +1,161 @@
-note
+================================================================
+  DEPLOYMENT PIPELINE — FOOD ORDERING SYSTEM
+  ขั้นตอนการติดตั้งและใช้งานทั้งหมด
+================================================================
+
+── โครงสร้าง ──────────────────────────────────────────────────
+deployment-pipeline/
+├── docker-images/
+│   ├── vault/          → HashiCorp Vault (secret management)
+│   ├── jenkins/        → Jenkins CI/CD (custom image + Docker CLI)
+│   └── nginx/          → Nginx Reverse Proxy (entry point)
+└── pipeline/
+    ├── food-ordering-service/   → NestJS Backend pipeline
+    └── food-ordering-system/    → Next.js Frontend pipeline
+
+── Traffic Flow ───────────────────────────────────────────────
+  Client
+    └── http://localhost          (nginx:80)
+          ├── /        → food-ordering-system:3000  (Next.js)
+          └── /api/    → food-ordering-service:5000 (NestJS)
+
+── Port ที่ใช้ ─────────────────────────────────────────────────
+  80    → Nginx (entry point หลัก)
+  8080  → Jenkins UI
+  8200  → Vault UI
+  5432  → PostgreSQL (internal)
+  5673  → RabbitMQ (internal)
+  15673 → RabbitMQ Management UI
+
+================================================================
+  ขั้นตอนที่ 1 — สร้าง Docker Network
+================================================================
+
+  docker network create jenkins-network
+
+================================================================
+  ขั้นตอนที่ 2 — รัน Vault
+================================================================
+
+  cd docker-images/vault
+  docker-compose up -d
+
+  # Init Vault (ทำครั้งแรกครั้งเดียว)
+  docker exec vault vault operator init -key-shares=5 -key-threshold=3
+  # *** บันทึก Unseal Keys และ Root Token ไว้ให้ดี ***
+
+  # Unseal Vault (ต้องทำทุกครั้งที่ restart — ใส่ key จนครบ threshold)
+  docker exec vault vault operator unseal <Unseal Key 1>
+  docker exec vault vault operator unseal <Unseal Key 2>
+  docker exec vault vault operator unseal <Unseal Key 3>
+
+  # เช็กสถานะ (Sealed ต้องเป็น false)
+  docker exec vault vault status
+
+  # Login และสร้าง secret สำหรับ Jenkins (ทำครั้งแรกครั้งเดียว)
+  docker exec vault vault login <Root Token>
+  docker exec vault vault secrets enable -path=secret kv-v2
+  docker exec vault vault kv put secret/jenkins/github \
+    username=<GitHub username> \
+    token=<GitHub Personal Access Token>
+
+================================================================
+  ขั้นตอนที่ 3 — รัน Jenkins
+================================================================
+
+  cd docker-images/jenkins
+  docker-compose up -d
+
+  # เปิด Jenkins UI
+  http://localhost:8080
+
+  # ติดตั้ง Plugins (Manage Jenkins → Plugins → Available)
+  - hashicorp-vault-plugin
+  - workflow-aggregator
+  - pipeline-stage-view
+  - git
+  - docker-workflow
+  - ws-cleanup
+
+  # เพิ่ม Vault Credential (Manage Jenkins → Credentials → Global → Add)
+  Kind        : Vault Token
+  Token       : <Root Token จาก vault operator init>
+  ID          : vault-token
+
+================================================================
+  ขั้นตอนที่ 4 — สร้าง Jenkins Pipeline Jobs
+================================================================
+
+  สร้าง Job: food-ordering-service
+  ─────────────────────────────────
+  New Item → Pipeline
+  Pipeline Definition : Pipeline script from SCM
+  SCM                 : Git
+  Repository URL      : https://github.com/nateesoft/deployment-pipeline.git
+  Branch              : */main
+  Script Path         : pipeline/food-ordering-service/Jenkinsfile
+
+  สร้าง Job: food-ordering-system
+  ────────────────────────────────
+  New Item → Pipeline
+  Pipeline Definition : Pipeline script from SCM
+  SCM                 : Git
+  Repository URL      : https://github.com/nateesoft/deployment-pipeline.git
+  Branch              : */main
+  Script Path         : pipeline/food-ordering-system/Jenkinsfile
+
+================================================================
+  ขั้นตอนที่ 5 — รัน Pipeline และ Deploy
+================================================================
+
+  # รัน pipeline ใน Jenkins UI ตามลำดับ
+  1. Build Now → food-ordering-service
+  2. Build Now → food-ordering-system
+
+================================================================
+  ขั้นตอนที่ 6 — รัน Nginx
+================================================================
+
+  cd docker-images/nginx
+  docker-compose up -d
+
+================================================================
+  การใช้งาน
+================================================================
+
+  เปิดแอป    → http://localhost
+  API         → http://localhost/api
+  Jenkins     → http://localhost:8080
+  Vault       → http://localhost:8200
+  RabbitMQ    → http://localhost:15673  (user: nathee / pass: nathee)
+
+================================================================
+  Deploy ครั้งถัดไป (หลังแก้ไข code)
+================================================================
+
+  เพียง push code ขึ้น GitHub แล้วกด "Build Now" ใน Jenkins
+  Jenkins จะ:
+    1. ดึง GitHub credentials จาก Vault
+    2. Clone source code
+    3. Build Docker image
+    4. Deploy container ใหม่แทนของเดิม
+
+================================================================
+  Restart Services หลัง Reboot เครื่อง
+================================================================
+
+  # 1. Vault (ต้อง unseal ทุกครั้ง)
+  cd docker-images/vault && docker-compose up -d
+  docker exec vault vault operator unseal <Key 1>
+  docker exec vault vault operator unseal <Key 2>
+  docker exec vault vault operator unseal <Key 3>
+
+  # 2. Jenkins
+  cd docker-images/jenkins && docker-compose up -d
+
+  # 3. รัน pipeline ใน Jenkins เพื่อ deploy app ใหม่
+
+  # 4. Nginx
+  cd docker-images/nginx && docker-compose up -d
+
+================================================================
