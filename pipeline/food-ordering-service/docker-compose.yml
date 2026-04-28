@@ -9,7 +9,7 @@ services:
   food-ordering-service:
     image: food-ordering-service:${IMAGE_TAG:-latest}
     build:
-      context: ../../src/food-ordering-service
+      context: ../../src
       dockerfile: Dockerfile
       args:
         - NODE_ENV=${NODE_ENV:-production}
