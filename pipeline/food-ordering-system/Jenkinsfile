@@ -3,13 +3,8 @@ pipeline {
 
     // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
     environment {
-        // food-ordering-system (Next.js Frontend)
-        REPO_FRONTEND      = 'https://github.com/nateesoft/food-ordering-system.git'
-        BRANCH_FRONTEND    = 'main'
-        FRONTEND_PORT      = '3000'
-
-        // docker image tag ใช้ BUILD_NUMBER เพื่อ traceability
-        IMAGE_TAG          = "${BUILD_NUMBER}"
+        BRANCH_FRONTEND = 'main'
+        IMAGE_TAG       = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -57,21 +52,17 @@ pipeline {
             steps {
                 sh """
                     IMAGE_TAG=${IMAGE_TAG} \
-                    FRONTEND_PORT=${FRONTEND_PORT} \
                     docker compose -f pipeline/food-ordering-system/docker-compose.yml \
                         up -d --force-recreate
                 """
-                echo "Frontend deployed → http://localhost:${FRONTEND_PORT}"
+                echo "Frontend deployed → http://localhost"
             }
         }
     }
 
     post {
         success {
-            echo """
-            ✅ Deployment successful
-               Frontend  → http://localhost:${FRONTEND_PORT}
-            """
+            echo "✅ Deployment successful → http://localhost"
         }
         failure {
             echo "❌ Pipeline failed — check the stage logs above."

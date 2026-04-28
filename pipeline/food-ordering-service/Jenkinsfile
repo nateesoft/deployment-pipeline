@@ -3,13 +3,8 @@ pipeline {
 
     // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
     environment {
-        // food-ordering-service (NestJS Backend)
-        REPO_BACKEND       = 'https://github.com/nateesoft/food-ordering-service.git'
-        BRANCH_BACKEND     = 'main'
-        BACKEND_PORT       = '5000'
-
-        // docker image tag ใช้ BUILD_NUMBER เพื่อ traceability
-        IMAGE_TAG          = "${BUILD_NUMBER}"
+        BRANCH_BACKEND = 'main'
+        IMAGE_TAG      = "${BUILD_NUMBER}"
     }
 
     stages {
@@ -57,21 +52,17 @@ pipeline {
             steps {
                 sh """
                     IMAGE_TAG=${IMAGE_TAG} \
-                    BACKEND_PORT=${BACKEND_PORT} \
                     docker compose -f pipeline/food-ordering-service/docker-compose.yml \
                         up -d --force-recreate
                 """
-                echo "Backend deployed → http://localhost:${BACKEND_PORT}"
+                echo "Backend deployed → http://localhost/api"
             }
         }
     }
 
     post {
         success {
-            echo """
-            ✅ Deployment successful
-               Backend   → http://localhost:${BACKEND_PORT}
-            """
+            echo "✅ Deployment successful → http://localhost/api"
         }
         failure {
             echo "❌ Pipeline failed — check the stage logs above."

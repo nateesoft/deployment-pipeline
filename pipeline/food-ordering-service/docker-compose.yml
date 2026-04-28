@@ -15,8 +15,8 @@ services:
         - NODE_ENV=${NODE_ENV:-production}
     container_name: food-ordering-service
     restart: unless-stopped
-    ports:
-      - "${BACKEND_PORT:-5000}:5000"
+    expose:
+      - "5000"
     environment:
       - NODE_ENV=${NODE_ENV:-production}
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-password}@food-ordering-db:5432/${POSTGRES_DB:-food_ordering}
