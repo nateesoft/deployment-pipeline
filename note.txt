@@ -6,12 +6,30 @@
 ── โครงสร้าง ──────────────────────────────────────────────────
 deployment-pipeline/
 ├── docker-images/
+│   ├── infra/          → Infrastructure (PostgreSQL, RabbitMQ, Redis, MinIO)
+│   ├── elk/            → Log Monitoring (Elasticsearch, Kibana, Filebeat)
 │   ├── vault/          → HashiCorp Vault (secret management)
 │   ├── jenkins/        → Jenkins CI/CD (custom image + Docker CLI)
 │   └── nginx/          → Nginx Reverse Proxy (entry point)
 └── pipeline/
     ├── food-ordering-service/   → NestJS Backend pipeline
     └── food-ordering-system/    → Next.js Frontend pipeline
+
+── แนวคิดการแยก Layer ─────────────────────────────────────────
+  Infrastructure Layer  (long-lived, stateful)
+    └── docker-images/infra  → postgres, rabbitmq, redis, minio
+
+  Observability Layer   (long-lived)
+    └── docker-images/elk   → elasticsearch, kibana, filebeat
+
+  CI/CD Layer           (long-lived)
+    └── docker-images/vault + jenkins
+
+  Application Layer     (ephemeral, rebuilt บ่อย)
+    └── pipeline/food-ordering-service + food-ordering-system
+
+  Gateway Layer         (long-lived)
+    └── docker-images/nginx
 
 ── Traffic Flow ───────────────────────────────────────────────
   Client
@@ -23,18 +41,68 @@ deployment-pipeline/
   80    → Nginx (entry point หลัก)
   8080  → Jenkins UI
   8200  → Vault UI
-  5432  → PostgreSQL (internal)
-  5673  → RabbitMQ (internal)
+  5432  → PostgreSQL
+  5673  → RabbitMQ AMQP
+  6379  → Redis
   15673 → RabbitMQ Management UI
+  9000  → MinIO S3 API
+  9001  → MinIO Console UI
+  9200  → Elasticsearch API
+  5601  → Kibana UI
 
 ================================================================
-  ขั้นตอนที่ 1 — สร้าง Docker Network
+  ขั้นตอนที่ 1 — สร้าง Docker Networks
 ================================================================
 
   docker network create jenkins-network
+  docker network create food-ordering-network
 
 ================================================================
-  ขั้นตอนที่ 2 — รัน Vault
+  ขั้นตอนที่ 2 — รัน Infrastructure (postgres, rabbitmq, redis, minio)
+================================================================
+
+  cd docker-images/infra
+  docker-compose up -d
+
+  # เช็กสถานะ
+  docker ps | grep food-ordering
+
+  # สร้าง MinIO bucket สำหรับเก็บรูปภาพอาหาร (ทำครั้งแรกครั้งเดียว)
+  # เปิด MinIO Console: http://localhost:9001
+  # Login: minioadmin / minioadmin (หรือตาม MINIO_ROOT_USER / MINIO_ROOT_PASSWORD ที่ตั้งไว้)
+  # สร้าง bucket ชื่อ "food-images" และตั้ง Access Policy เป็น public (สำหรับ read รูปภาพ)
+  #
+  # หรือใช้ MinIO CLI (mc):
+  #   docker run --rm --network food-ordering-network \
+  #     minio/mc:latest \
+  #     sh -c "mc alias set myminio http://food-ordering-minio:9000 minioadmin minioadmin && \
+  #            mc mb myminio/food-images && \
+  #            mc anonymous set download myminio/food-images"
+
+================================================================
+  ขั้นตอนที่ 3 — รัน ELK Stack (Elasticsearch, Kibana, Filebeat)
+================================================================
+
+  cd docker-images/elk
+  docker-compose up -d
+
+  # รอ Elasticsearch พร้อม (~30 วินาที) แล้วเช็ก
+  curl http://localhost:9200/_cluster/health?pretty
+
+  # เปิด Kibana UI: http://localhost:5601
+  # ตั้งค่า Data View (ทำครั้งแรกครั้งเดียว):
+  #   Stack Management → Data Views → Create data view
+  #   Name    : food-ordering-logs
+  #   Pattern : food-ordering-*
+  #   คลิก "Create data view"
+  #
+  # *** หมายเหตุ: Filebeat ต้องการ access /var/lib/docker/containers บน host
+  #     ถ้ารันบน Linux production — mount path นี้ต้องมีสิทธิ์ read
+  #     ถ้ารันบน Mac/Windows Docker Desktop — logs อาจอยู่คนละ path
+  #     ในกรณีนั้นให้ใช้ log file transport แทน (logs/app.log) ***
+
+================================================================
+  ขั้นตอนที่ 4 — รัน Vault
 ================================================================
 
   cd docker-images/vault
@@ -60,7 +128,7 @@ deployment-pipeline/
     token=<GitHub Personal Access Token>
 
 ================================================================
-  ขั้นตอนที่ 3 — รัน Jenkins
+  ขั้นตอนที่ 5 — รัน Jenkins
 ================================================================
 
   cd docker-images/jenkins
@@ -83,7 +151,7 @@ deployment-pipeline/
   ID          : vault-token
 
 ================================================================
-  ขั้นตอนที่ 4 — สร้าง Jenkins Pipeline Jobs
+  ขั้นตอนที่ 6 — สร้าง Jenkins Pipeline Jobs
 ================================================================
 
   สร้าง Job: food-ordering-service
@@ -105,7 +173,7 @@ deployment-pipeline/
   Script Path         : pipeline/food-ordering-system/Jenkinsfile
 
 ================================================================
-  ขั้นตอนที่ 5 — รัน Pipeline และ Deploy
+  ขั้นตอนที่ 7 — รัน Pipeline และ Deploy
 ================================================================
 
   # รัน pipeline ใน Jenkins UI ตามลำดับ
@@ -113,7 +181,7 @@ deployment-pipeline/
   2. Build Now → food-ordering-system
 
 ================================================================
-  ขั้นตอนที่ 6 — รัน Nginx
+  ขั้นตอนที่ 8 — รัน Nginx
 ================================================================
 
   cd docker-images/nginx
@@ -123,11 +191,14 @@ deployment-pipeline/
   การใช้งาน
 ================================================================
 
-  เปิดแอป    → http://localhost
-  API         → http://localhost/api
-  Jenkins     → http://localhost:8080
-  Vault       → http://localhost:8200
-  RabbitMQ    → http://localhost:15673  (user: nathee / pass: nathee)
+  เปิดแอป        → http://localhost
+  API             → http://localhost/api
+  API Docs        → http://localhost/api/docs
+  Jenkins         → http://localhost:8080
+  Vault           → http://localhost:8200
+  RabbitMQ        → http://localhost:15673  (user: nathee / pass: nathee)
+  MinIO Console   → http://localhost:9001   (user: minioadmin / pass: minioadmin)
+  Kibana          → http://localhost:5601
 
 ================================================================
   Deploy ครั้งถัดไป (หลังแก้ไข code)
@@ -139,23 +210,69 @@ deployment-pipeline/
     2. Clone source code
     3. Build Docker image
     4. Deploy container ใหม่แทนของเดิม
+  (Infrastructure, ELK และ MinIO ยังคงทำงานต่อเนื่อง ไม่ถูกกระทบ)
 
 ================================================================
   Restart Services หลัง Reboot เครื่อง
 ================================================================
 
-  # 1. Vault (ต้อง unseal ทุกครั้ง)
+  # 1. Infrastructure (ข้อมูลยังอยู่ครบใน volumes)
+  cd docker-images/infra && docker-compose up -d
+
+  # 2. ELK Stack
+  cd docker-images/elk && docker-compose up -d
+
+  # 3. Vault (ต้อง unseal ทุกครั้ง)
   cd docker-images/vault && docker-compose up -d
   docker exec vault vault operator unseal <Key 1>
   docker exec vault vault operator unseal <Key 2>
   docker exec vault vault operator unseal <Key 3>
 
-  # 2. Jenkins
+  # 4. Jenkins
   cd docker-images/jenkins && docker-compose up -d
 
-  # 3. รัน pipeline ใน Jenkins เพื่อ deploy app ใหม่
+  # 5. รัน pipeline ใน Jenkins เพื่อ deploy app ใหม่
 
-  # 4. Nginx
+  # 6. Nginx
   cd docker-images/nginx && docker-compose up -d
+
+================================================================
+  Environment Variables — food-ordering-service
+================================================================
+
+  # Database
+  DATABASE_URL  = postgresql://postgres:password@food-ordering-db:5432/food_ordering
+
+  # Message Broker
+  RABBITMQ_URL  = amqp://nathee:nathee@food-ordering-rabbitmq:5672/
+
+  # Cache
+  REDIS_URL     = redis://food-ordering-redis:6379
+
+  # Auth
+  JWT_SECRET    = <your-secret>
+  JWT_EXPIRES_IN = 7d
+
+  # Server
+  PORT          = 5000
+
+  # Logging
+  LOG_LEVEL     = info   (debug | info | warn | error)
+
+  # MinIO (Object Storage — แทน S3)
+  MINIO_ENDPOINT        = http://food-ordering-minio:9000
+  MINIO_ROOT_USER       = minioadmin
+  MINIO_ROOT_PASSWORD   = minioadmin
+  MINIO_BUCKET          = food-images
+
+================================================================
+  Volumes ที่สร้างโดย Docker (ข้อมูลถาวร)
+================================================================
+
+  food_ordering_db_data       → PostgreSQL data
+  food_ordering_rabbitmq_data → RabbitMQ messages/config
+  food_ordering_redis_data    → Redis cache
+  food_ordering_minio_data    → MinIO objects (รูปภาพอาหาร)
+  food_ordering_es_data       → Elasticsearch indices (logs)
 
 ================================================================

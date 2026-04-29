@@ -1,0 +1,34 @@
+filebeat.inputs:
+  - type: container
+    paths:
+      - /var/lib/docker/containers/*/*.log
+    processors:
+      - add_docker_metadata:
+          host: "unix:///var/run/docker.sock"
+      # Parse the JSON log line emitted by Winston
+      - decode_json_fields:
+          fields: ["message"]
+          target: ""
+          overwrite_keys: true
+          add_error_key: true
+      # Keep only food-ordering containers
+      - drop_event:
+          when:
+            not:
+              contains:
+                container.name: "food-ordering"
+
+processors:
+  - add_host_metadata: ~
+
+output.elasticsearch:
+  hosts: ["http://food-ordering-elasticsearch:9200"]
+  indices:
+    - index: "food-ordering-%{+yyyy.MM.dd}"
+
+setup.kibana:
+  host: "http://food-ordering-kibana:5601"
+
+setup.ilm.enabled: false
+
+logging.level: warning

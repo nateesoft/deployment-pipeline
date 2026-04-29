@@ -1,0 +1,75 @@
+services:
+  food-ordering-db:
+    image: postgres:15-alpine
+    container_name: food-ordering-db
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      - POSTGRES_DB=${POSTGRES_DB:-food_ordering}
+    volumes:
+      - food_ordering_db_data:/var/lib/postgresql/data
+    networks:
+      - food-ordering-network
+
+  food-ordering-rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: food-ordering-rabbitmq
+    restart: unless-stopped
+    hostname: food-ordering-rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-nathee}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-nathee}
+      - RABBITMQ_DEFAULT_VHOST=/
+    volumes:
+      - food_ordering_rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - food-ordering-network
+
+  food-ordering-redis:
+    image: redis:7-alpine
+    container_name: food-ordering-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
+    volumes:
+      - food_ordering_redis_data:/data
+    networks:
+      - food-ordering-network
+
+  food-ordering-minio:
+    image: minio/minio:latest
+    container_name: food-ordering-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    volumes:
+      - food_ordering_minio_data:/data
+    command: server /data --console-address ":9001"
+    networks:
+      - food-ordering-network
+
+volumes:
+  food_ordering_db_data:
+    driver: local
+  food_ordering_rabbitmq_data:
+    driver: local
+  food_ordering_redis_data:
+    driver: local
+  food_ordering_minio_data:
+    driver: local
+
+networks:
+  food-ordering-network:
+    external: true
+    name: food-ordering-network
