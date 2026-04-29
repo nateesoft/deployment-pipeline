@@ -29,6 +29,7 @@ services:
 networks:
   jenkins-network:
     external: true
+    name: jenkins-network
   food-ordering-network:
+    external: true
     name: food-ordering-network
-    driver: bridge
