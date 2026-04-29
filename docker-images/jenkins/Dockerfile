@@ -3,7 +3,7 @@ FROM jenkins/jenkins:lts-jdk21
 USER root
 
 RUN apt-get update && \
-    apt-get install -y ca-certificates curl gosu && \
+    apt-get install -y ca-certificates curl gosu tini && \
     install -m 0755 -d /etc/apt/keyrings && \
     curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
     chmod a+r /etc/apt/keyrings/docker.asc && \
@@ -13,10 +13,9 @@ RUN apt-get update && \
         > /etc/apt/sources.list.d/docker.list && \
     apt-get update && \
     apt-get install -y docker-ce-cli docker-compose-plugin && \
-    apt-get clean && rm -rf /var/lib/apt/lists/* && \
-    groupadd -f docker && usermod -aG docker jenkins
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-ENTRYPOINT ["/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

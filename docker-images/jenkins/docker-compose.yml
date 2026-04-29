@@ -3,9 +3,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: jenkins-custom:lts-jdk21
+    image: jenkins-custom:latest
     container_name: jenkins
     restart: unless-stopped
+
     ports:
       - "8080:8080"
       - "50000:50000"
@@ -13,9 +14,12 @@ services:
     volumes:
       - jenkins_home:/var/jenkins_home
       - /var/run/docker.sock:/var/run/docker.sock
+
     environment:
       - JAVA_OPTS=-Djenkins.install.runSetupWizard=false
       - VAULT_ADDR=http://vault:8200
+      - TZ=Asia/Bangkok
+
     networks:
       - jenkins-network
 
@@ -24,5 +28,3 @@ volumes:
 
 networks:
   jenkins-network:
-    external: true
-    name: jenkins-network
