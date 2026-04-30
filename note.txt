@@ -35,7 +35,7 @@ deployment-pipeline/
   Client
     └── http://localhost          (nginx:80)
           ├── /        → food-ordering-system:3000  (Next.js)
-          └── /api/    → food-ordering-service:5000 (NestJS)
+          └── /api/    → food-ordering-service:3001 (NestJS)
 
 ── Port ที่ใช้ ─────────────────────────────────────────────────
   80    → Nginx (entry point หลัก)
@@ -254,7 +254,7 @@ deployment-pipeline/
   JWT_EXPIRES_IN = 7d
 
   # Server
-  PORT          = 5000
+  PORT          = 3001
 
   # Logging
   LOG_LEVEL     = info   (debug | info | warn | error)
