@@ -1,0 +1,631 @@
+================================================================
+  WINDOWS DEPLOYMENT — FOOD ORDERING SYSTEM
+  ขั้นตอนการติดตั้งโปรแกรมลงโดยตรงบน Windows Server
+  (ไม่ใช้ Docker)
+================================================================
+
+── โครงสร้าง ──────────────────────────────────────────────────
+windows-deployment/
+├── note.txt                         → ไฟล์นี้ (คู่มือการติดตั้ง)
+└── pipeline/
+    ├── food-ordering-service/       → NestJS Backend pipeline
+    │   └── Jenkinsfile
+    └── food-ordering-system/        → Next.js Frontend pipeline
+        └── Jenkinsfile
+
+── สิ่งที่ต้องมีก่อนเริ่ม ────────────────────────────────────
+  - Windows Server 2019 / 2022 (64-bit)
+  - PowerShell 5.1+ (รันในฐานะ Administrator)
+  - เปิดใช้งาน .NET Framework 3.5 / 4.x
+  - บัญชี Administrator หรือสิทธิ์เทียบเท่า
+
+── Port ที่ใช้ ─────────────────────────────────────────────────
+  80    → Nginx (entry point หลัก)
+  8080  → Jenkins UI
+  8200  → Vault UI
+  5432  → PostgreSQL
+  5672  → RabbitMQ AMQP
+  6379  → Redis
+  15672 → RabbitMQ Management UI
+  9000  → MinIO S3 API
+  9001  → MinIO Console UI
+  9200  → Elasticsearch API
+  5601  → Kibana UI
+  3001  → food-ordering-service (NestJS)
+  3000  → food-ordering-system (Next.js)
+
+── Traffic Flow ───────────────────────────────────────────────
+  Client
+    └── http://<server-ip>          (nginx:80)
+          ├── /        → localhost:3000  (Next.js)
+          └── /api/    → localhost:3001 (NestJS)
+
+================================================================
+  ขั้นตอนที่ 0 — ติดตั้ง NSSM (Service Manager)
+================================================================
+
+  NSSM ใช้สำหรับติดตั้งโปรแกรมที่ไม่มี Windows Service
+  เป็น Windows Service ได้ (MinIO, Vault, Nginx, Kibana)
+
+  # ดาวน์โหลดจาก https://nssm.cc/download
+  Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" `
+      -OutFile "C:\nssm.zip"
+  Expand-Archive "C:\nssm.zip" -DestinationPath "C:\nssm"
+
+  # คัดลอก nssm.exe ไปไว้ใน System PATH
+  Copy-Item "C:\nssm\nssm-2.24\win64\nssm.exe" -Destination "C:\Windows\System32\nssm.exe"
+
+  # ตรวจสอบ
+  nssm version
+
+================================================================
+  ขั้นตอนที่ 1 — ติดตั้ง Infrastructure
+         (PostgreSQL, RabbitMQ, Redis, MinIO)
+================================================================
+
+  ── 1.1 ติดตั้ง PostgreSQL 15 ────────────────────────────────
+  # ดาวน์โหลด installer จาก https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
+  # เลือก: PostgreSQL 15.x → Windows x86-64
+
+  Invoke-WebRequest -Uri "https://get.enterprisedb.com/postgresql/postgresql-15.6-1-windows-x64.exe" `
+      -OutFile "C:\postgresql-installer.exe"
+
+  # ติดตั้งแบบ Silent (ปรับ superpassword ตามต้องการ)
+  Start-Process -FilePath "C:\postgresql-installer.exe" -Wait -ArgumentList `
+      "--mode unattended",
+      "--superpassword password",
+      "--servicename postgresql-15",
+      "--serviceaccount postgres",
+      "--serverport 5432"
+
+  # เพิ่ม psql ใน PATH (ปิด-เปิด PowerShell ใหม่หลังรัน)
+  [System.Environment]::SetEnvironmentVariable(
+      "Path",
+      $env:Path + ";C:\Program Files\PostgreSQL\15\bin",
+      "Machine"
+  )
+
+  # เปิด PowerShell ใหม่ แล้วสร้าง Database
+  psql -U postgres -c "CREATE DATABASE food_ordering;"
+
+  # ตรวจสอบ
+  psql -U postgres -c "\l"
+
+  # Start / Stop Service:
+  #   net start postgresql-15
+  #   net stop  postgresql-15
+
+  ── 1.2 ติดตั้ง Erlang และ RabbitMQ ─────────────────────────
+  # ขั้นตอนที่ 1: ติดตั้ง Erlang OTP ก่อน (RabbitMQ ต้องการ)
+  # ดาวน์โหลดจาก https://www.erlang.org/downloads
+  # เลือก: OTP 26.x → Windows 64-bit Binary File
+
+  Invoke-WebRequest -Uri "https://github.com/erlang/otp/releases/download/OTP-26.2.5/otp_win64_26.2.5.exe" `
+      -OutFile "C:\erlang-installer.exe"
+  Start-Process -FilePath "C:\erlang-installer.exe" -Wait -ArgumentList "/S"
+
+  # ขั้นตอนที่ 2: ติดตั้ง RabbitMQ
+  # ดาวน์โหลดจาก https://www.rabbitmq.com/docs/install-windows
+  # เลือก: rabbitmq-server-3.13.x.exe
+
+  Invoke-WebRequest -Uri "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.13.2/rabbitmq-server-3.13.2.exe" `
+      -OutFile "C:\rabbitmq-installer.exe"
+  Start-Process -FilePath "C:\rabbitmq-installer.exe" -Wait -ArgumentList "/S"
+
+  # เพิ่ม PATH ของ RabbitMQ (ปรับ version ตามที่ติดตั้ง)
+  [System.Environment]::SetEnvironmentVariable(
+      "Path",
+      $env:Path + ";C:\Program Files\RabbitMQ Server\rabbitmq_server-3.13.2\sbin",
+      "Machine"
+  )
+
+  # เปิด PowerShell ใหม่ แล้วเปิด Management Plugin
+  rabbitmq-plugins enable rabbitmq_management
+
+  # สร้าง User สำหรับ Application
+  rabbitmqctl add_user nathee nathee
+  rabbitmqctl set_user_tags nathee administrator
+  rabbitmqctl set_permissions -p / nathee ".*" ".*" ".*"
+
+  # ตรวจสอบสถานะ
+  rabbitmqctl status
+
+  # RabbitMQ ถูกติดตั้งเป็น Windows Service ชื่อ "RabbitMQ" โดยอัตโนมัติ
+  # Management UI: http://localhost:15672  (guest / guest)
+
+  ── 1.3 ติดตั้ง Redis ────────────────────────────────────────
+  # ดาวน์โหลด Windows port ของ Redis จาก
+  # https://github.com/tporadowski/redis/releases
+  # เลือก: Redis-x64-5.0.14.1.msi
+
+  Invoke-WebRequest -Uri "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.msi" `
+      -OutFile "C:\redis-installer.msi"
+
+  # ติดตั้งแบบ Silent
+  Start-Process msiexec.exe -Wait -ArgumentList `
+      "/i C:\redis-installer.msi",
+      "/quiet",
+      "ADDLOCAL=ALL"
+
+  # Redis จะถูกติดตั้งที่ C:\Program Files\Redis\
+  # และติดตั้งเป็น Windows Service ชื่อ "Redis" โดยอัตโนมัติ
+
+  # ตั้งค่า maxmemory ใน redis.windows-service.conf
+  # ไฟล์: C:\Program Files\Redis\redis.windows-service.conf
+  # แก้ไขเพิ่ม:
+  #   maxmemory 256mb
+  #   maxmemory-policy allkeys-lru
+
+  # Restart service เพื่อให้ config มีผล
+  Restart-Service Redis
+
+  # ตรวจสอบ
+  & "C:\Program Files\Redis\redis-cli.exe" ping
+  # ผลลัพธ์ควรได้: PONG
+
+  ── 1.4 ติดตั้ง MinIO ────────────────────────────────────────
+  # ดาวน์โหลด MinIO binary โดยตรงจาก https://min.io/download#/windows
+
+  New-Item -ItemType Directory -Path "C:\minio\data" -Force
+  New-Item -ItemType Directory -Path "C:\minio\bin"  -Force
+
+  Invoke-WebRequest -Uri "https://dl.min.io/server/minio/release/windows-amd64/minio.exe" `
+      -OutFile "C:\minio\bin\minio.exe"
+
+  # ดาวน์โหลด MinIO Client (mc.exe)
+  Invoke-WebRequest -Uri "https://dl.min.io/client/mc/release/windows-amd64/mc.exe" `
+      -OutFile "C:\minio\bin\mc.exe"
+
+  # ติดตั้ง MinIO เป็น Windows Service ด้วย NSSM
+  nssm install MinIO "C:\minio\bin\minio.exe" "server C:\minio\data --console-address :9001"
+  nssm set MinIO AppEnvironmentExtra "MINIO_ROOT_USER=minioadmin" "MINIO_ROOT_PASSWORD=minioadmin"
+  nssm set MinIO Start SERVICE_AUTO_START
+  nssm start MinIO
+
+  # ตรวจสอบ: เปิด MinIO Console → http://localhost:9001
+  # Login: minioadmin / minioadmin
+
+  # สร้าง Bucket "food-images" (ทำครั้งแรกครั้งเดียว)
+  C:\minio\bin\mc.exe alias set myminio http://localhost:9000 minioadmin minioadmin
+  C:\minio\bin\mc.exe mb myminio/food-images
+  C:\minio\bin\mc.exe anonymous set download myminio/food-images
+
+================================================================
+  ขั้นตอนที่ 2 — ติดตั้ง ELK Stack
+         (Elasticsearch, Kibana, Filebeat)
+================================================================
+
+  ── 2.1 ติดตั้ง Elasticsearch ────────────────────────────────
+  # ดาวน์โหลดจาก https://www.elastic.co/downloads/elasticsearch
+  # เลือก: Windows → ZIP
+
+  $esVersion = "8.13.0"
+  Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-$esVersion-windows-x86_64.zip" `
+      -OutFile "C:\elasticsearch.zip"
+  Expand-Archive "C:\elasticsearch.zip" -DestinationPath "C:\"
+  Rename-Item "C:\elasticsearch-$esVersion" "C:\elasticsearch"
+
+  # แก้ไข C:\elasticsearch\config\elasticsearch.yml
+  # เปิดไฟล์ด้วย Notepad แล้วเพิ่มบรรทัดต่อไปนี้ท้ายไฟล์:
+  #   xpack.security.enabled: false
+  #   xpack.security.http.ssl.enabled: false
+  Add-Content "C:\elasticsearch\config\elasticsearch.yml" "`nxpack.security.enabled: false"
+  Add-Content "C:\elasticsearch\config\elasticsearch.yml" "`nxpack.security.http.ssl.enabled: false"
+
+  # ติดตั้งเป็น Windows Service
+  & "C:\elasticsearch\bin\elasticsearch-service.bat" install
+  & "C:\elasticsearch\bin\elasticsearch-service.bat" manager
+  # *** ใน Service Manager ตั้ง Startup Type เป็น Automatic ***
+
+  & "C:\elasticsearch\bin\elasticsearch-service.bat" start
+
+  # ตรวจสอบ (~30 วินาที หลัง start)
+  Invoke-RestMethod http://localhost:9200/_cluster/health?pretty
+
+  ── 2.2 ติดตั้ง Kibana ───────────────────────────────────────
+  # ดาวน์โหลดจาก https://www.elastic.co/downloads/kibana
+  # เลือก: Windows → ZIP (ต้องใช้ version เดียวกับ Elasticsearch)
+
+  $kbVersion = "8.13.0"
+  Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/kibana/kibana-$kbVersion-windows-x86_64.zip" `
+      -OutFile "C:\kibana.zip"
+  Expand-Archive "C:\kibana.zip" -DestinationPath "C:\"
+  Rename-Item "C:\kibana-$kbVersion" "C:\kibana"
+
+  # ติดตั้งเป็น Windows Service ด้วย NSSM
+  nssm install Kibana "C:\kibana\bin\kibana.bat"
+  nssm set Kibana AppDirectory "C:\kibana"
+  nssm set Kibana Start SERVICE_AUTO_START
+  nssm start Kibana
+
+  # เปิด Kibana UI: http://localhost:5601
+  # ตั้งค่า Data View (ทำครั้งแรกครั้งเดียว):
+  #   Stack Management → Data Views → Create data view
+  #   Name    : food-ordering-logs
+  #   Pattern : food-ordering-*
+  #   คลิก "Create data view"
+
+  ── 2.3 ติดตั้ง Filebeat ─────────────────────────────────────
+  # ดาวน์โหลดจาก https://www.elastic.co/downloads/beats/filebeat
+  # เลือก: Windows → ZIP (ต้องใช้ version เดียวกับ Elasticsearch)
+
+  $fbVersion = "8.13.0"
+  Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-$fbVersion-windows-x86_64.zip" `
+      -OutFile "C:\filebeat.zip"
+  Expand-Archive "C:\filebeat.zip" -DestinationPath "C:\"
+  Rename-Item "C:\filebeat-$fbVersion-windows-x86_64" "C:\filebeat"
+
+  # แก้ไข C:\filebeat\filebeat.yml
+  # เปิดไฟล์ด้วย Notepad และตั้งค่าให้อ่าน log ของ application:
+  #
+  # filebeat.inputs:
+  # - type: log
+  #   enabled: true
+  #   paths:
+  #     - C:\apps\food-ordering-service\logs\*.log
+  #   fields:
+  #     app: food-ordering-service
+  #   fields_under_root: true
+  #
+  # output.elasticsearch:
+  #   hosts: ["localhost:9200"]
+  #   index: "food-ordering-%{+yyyy.MM.dd}"
+
+  # ติดตั้ง และ start Filebeat service
+  PowerShell -ExecutionPolicy Bypass -File "C:\filebeat\install-service-filebeat.ps1"
+  Start-Service filebeat
+
+================================================================
+  ขั้นตอนที่ 3 — ติดตั้ง HashiCorp Vault
+================================================================
+
+  # ดาวน์โหลดจาก https://developer.hashicorp.com/vault/install
+  # เลือก: Windows → AMD64 → zip
+
+  Invoke-WebRequest -Uri "https://releases.hashicorp.com/vault/1.16.1/vault_1.16.1_windows_amd64.zip" `
+      -OutFile "C:\vault.zip"
+  New-Item -ItemType Directory -Path "C:\vault\bin"    -Force
+  New-Item -ItemType Directory -Path "C:\vault\data"   -Force
+  New-Item -ItemType Directory -Path "C:\vault\config" -Force
+  Expand-Archive "C:\vault.zip" -DestinationPath "C:\vault\bin"
+
+  # เพิ่ม vault.exe ใน PATH
+  [System.Environment]::SetEnvironmentVariable(
+      "Path",
+      $env:Path + ";C:\vault\bin",
+      "Machine"
+  )
+
+  # สร้างไฟล์ config: C:\vault\config\config.hcl
+  # เปิด Notepad แล้วสร้างไฟล์ใหม่ที่ C:\vault\config\config.hcl
+  # โดยใส่เนื้อหาดังนี้:
+  #
+  #   storage "file" {
+  #     path = "C:/vault/data"
+  #   }
+  #
+  #   listener "tcp" {
+  #     address     = "0.0.0.0:8200"
+  #     tls_disable = 1
+  #   }
+  #
+  #   api_addr = "http://0.0.0.0:8200"
+  #   ui       = true
+
+  @"
+storage "file" {
+  path = "C:/vault/data"
+}
+
+listener "tcp" {
+  address     = "0.0.0.0:8200"
+  tls_disable = 1
+}
+
+api_addr = "http://0.0.0.0:8200"
+ui       = true
+"@ | Set-Content "C:\vault\config\config.hcl"
+
+  # ติดตั้ง Vault เป็น Windows Service ด้วย NSSM
+  nssm install Vault "C:\vault\bin\vault.exe" "server -config=C:\vault\config\config.hcl"
+  nssm set Vault Start SERVICE_AUTO_START
+  nssm start Vault
+
+  # เปิด PowerShell ใหม่ แล้วตั้งค่า VAULT_ADDR
+  [System.Environment]::SetEnvironmentVariable("VAULT_ADDR", "http://127.0.0.1:8200", "Machine")
+  $env:VAULT_ADDR = "http://127.0.0.1:8200"
+
+  # Init Vault (ทำครั้งแรกครั้งเดียว)
+  vault operator init -key-shares=5 -key-threshold=3
+  # *** บันทึก Unseal Keys และ Root Token ไว้ให้ดี ***
+
+  # Unseal Vault (ต้องทำทุกครั้งที่ restart — ใส่ key จนครบ threshold)
+  vault operator unseal <Unseal Key 1>
+  vault operator unseal <Unseal Key 2>
+  vault operator unseal <Unseal Key 3>
+
+  # ตรวจสอบสถานะ (Sealed ต้องเป็น false)
+  vault status
+
+  # Login และสร้าง secret สำหรับ Jenkins (ทำครั้งแรกครั้งเดียว)
+  vault login <Root Token>
+  vault secrets enable -path=secret kv-v2
+  vault kv put secret/jenkins/github `
+      username=<GitHub username> `
+      token=<GitHub Personal Access Token>
+
+  # Vault UI: http://localhost:8200
+
+================================================================
+  ขั้นตอนที่ 4 — ติดตั้ง Jenkins
+================================================================
+
+  # ดาวน์โหลดจาก https://www.jenkins.io/download/
+  # เลือก: Windows → jenkins.msi (LTS)
+
+  Invoke-WebRequest -Uri "https://get.jenkins.io/windows-stable/2.440.2/jenkins.msi" `
+      -OutFile "C:\jenkins-installer.msi"
+
+  # ติดตั้งแบบ Silent
+  Start-Process msiexec.exe -Wait -ArgumentList `
+      "/i C:\jenkins-installer.msi",
+      "/quiet",
+      "JENKINSDIR=C:\Jenkins"
+
+  # Jenkins ถูกติดตั้งเป็น Windows Service โดยอัตโนมัติ
+  # Jenkins Home: C:\ProgramData\Jenkins\.jenkins
+
+  # เปิด Jenkins UI: http://localhost:8080
+  # ดู Initial Admin Password
+  Get-Content "C:\ProgramData\Jenkins\.jenkins\secrets\initialAdminPassword"
+
+  # ติดตั้ง Plugins (Manage Jenkins → Plugins → Available)
+  - hashicorp-vault-plugin
+  - workflow-aggregator
+  - pipeline-stage-view
+  - git
+  - ws-cleanup
+
+  # เพิ่ม Vault Credential (Manage Jenkins → Credentials → Global → Add)
+  Kind        : Vault Token
+  Token       : <Root Token จาก vault operator init>
+  ID          : vault-token
+
+  # *** Vault address สำหรับ Jenkins บน Windows ใช้ http://localhost:8200 ***
+
+================================================================
+  ขั้นตอนที่ 5 — ติดตั้ง Node.js และ PM2
+================================================================
+
+  # ดาวน์โหลด Node.js LTS จาก https://nodejs.org/en/download
+  # เลือก: Windows Installer (.msi) → 64-bit
+
+  Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.12.2/node-v20.12.2-x64.msi" `
+      -OutFile "C:\nodejs-installer.msi"
+
+  # ติดตั้งแบบ Silent
+  Start-Process msiexec.exe -Wait -ArgumentList `
+      "/i C:\nodejs-installer.msi",
+      "/quiet",
+      "ADDLOCAL=ALL"
+
+  # เปิด PowerShell ใหม่ แล้วตรวจสอบ
+  node --version
+  npm  --version
+
+  # ติดตั้ง PM2 (Process Manager สำหรับ Node.js)
+  npm install -g pm2
+  npm install -g pm2-windows-startup
+
+  # ตั้งค่า PM2 ให้ auto start เมื่อ Windows เริ่มต้น
+  pm2-startup install
+
+  # สร้าง folder สำหรับ Application
+  New-Item -ItemType Directory -Path "C:\apps\food-ordering-service\logs" -Force
+  New-Item -ItemType Directory -Path "C:\apps\food-ordering-system\logs"  -Force
+
+================================================================
+  ขั้นตอนที่ 6 — สร้าง Jenkins Pipeline Jobs
+================================================================
+
+  สร้าง Job: food-ordering-service
+  ─────────────────────────────────
+  New Item → Pipeline
+  Pipeline Definition : Pipeline script from SCM
+  SCM                 : Git
+  Repository URL      : https://github.com/nateesoft/deployment-pipeline.git
+  Branch              : */main
+  Script Path         : windows-deployment/pipeline/food-ordering-service/Jenkinsfile
+
+  สร้าง Job: food-ordering-system
+  ────────────────────────────────
+  New Item → Pipeline
+  Pipeline Definition : Pipeline script from SCM
+  SCM                 : Git
+  Repository URL      : https://github.com/nateesoft/deployment-pipeline.git
+  Branch              : */main
+  Script Path         : windows-deployment/pipeline/food-ordering-system/Jenkinsfile
+
+================================================================
+  ขั้นตอนที่ 7 — รัน Pipeline และ Deploy
+================================================================
+
+  # รัน pipeline ใน Jenkins UI ตามลำดับ
+  1. Build Now → food-ordering-service
+  2. Build Now → food-ordering-system
+
+  # Pipeline จะทำ:
+  #   1. ดึง GitHub credentials จาก Vault
+  #   2. Clone source code
+  #   3. npm ci && npm run build
+  #   4. คัดลอกไฟล์ไปยัง C:\apps\...
+  #   5. PM2 restart (หรือ start ถ้าครั้งแรก)
+
+================================================================
+  ขั้นตอนที่ 8 — ติดตั้งและตั้งค่า Nginx
+================================================================
+
+  # ดาวน์โหลดจาก http://nginx.org/en/download.html
+  # เลือก: Stable version → nginx/Windows-x.xx.x (zip)
+
+  Invoke-WebRequest -Uri "http://nginx.org/download/nginx-1.26.0.zip" `
+      -OutFile "C:\nginx.zip"
+  Expand-Archive "C:\nginx.zip" -DestinationPath "C:\"
+  Rename-Item "C:\nginx-1.26.0" "C:\nginx"
+
+  # แก้ไขไฟล์ C:\nginx\conf\nginx.conf
+  # เปิดด้วย Notepad แล้วแทนที่เนื้อหาด้วย config ด้านล่าง:
+  #
+  # worker_processes auto;
+  # events { worker_connections 1024; }
+  #
+  # http {
+  #   include       mime.types;
+  #   default_type  application/octet-stream;
+  #
+  #   upstream frontend { server 127.0.0.1:3000; }
+  #   upstream backend  { server 127.0.0.1:3001; }
+  #
+  #   server {
+  #     listen 80;
+  #     server_name _;
+  #
+  #     location /api/ {
+  #       proxy_pass         http://backend/api/;
+  #       proxy_set_header   Host $host;
+  #       proxy_set_header   X-Real-IP $remote_addr;
+  #     }
+  #
+  #     location / {
+  #       proxy_pass         http://frontend/;
+  #       proxy_set_header   Host $host;
+  #       proxy_set_header   X-Real-IP $remote_addr;
+  #     }
+  #   }
+  # }
+
+  # ติดตั้ง Nginx เป็น Windows Service ด้วย NSSM
+  nssm install Nginx "C:\nginx\nginx.exe"
+  nssm set Nginx AppDirectory "C:\nginx"
+  nssm set Nginx Start SERVICE_AUTO_START
+  nssm start Nginx
+
+  # ตรวจสอบ config ก่อน start
+  & "C:\nginx\nginx.exe" -t
+
+  # เปิดแอป: http://localhost
+
+================================================================
+  การใช้งาน
+================================================================
+
+  เปิดแอป        → http://localhost
+  API             → http://localhost/api
+  API Docs        → http://localhost/api/docs
+  Jenkins         → http://localhost:8080
+  Vault           → http://localhost:8200
+  RabbitMQ        → http://localhost:15672  (user: nathee / pass: nathee)
+  MinIO Console   → http://localhost:9001   (user: minioadmin / pass: minioadmin)
+  Kibana          → http://localhost:5601
+
+================================================================
+  Deploy ครั้งถัดไป (หลังแก้ไข code)
+================================================================
+
+  เพียง push code ขึ้น GitHub แล้วกด "Build Now" ใน Jenkins
+  Jenkins จะ:
+    1. ดึง GitHub credentials จาก Vault
+    2. Clone source code
+    3. npm ci && npm run build
+    4. PM2 restart (application ออนไลน์กลับมาใน ~5 วินาที)
+  (PostgreSQL, RabbitMQ, Redis, MinIO ยังทำงานต่อเนื่องในฐานะ Windows Services)
+
+================================================================
+  Restart Services หลัง Reboot เครื่อง
+================================================================
+
+  # Services ต่อไปนี้ถูกตั้งเป็น Automatic จะ start เองอัตโนมัติ:
+  #   postgresql-15, RabbitMQ, Redis, MinIO, elasticsearch-service-x64-8,
+  #   Kibana, filebeat, Vault*, Jenkins, Nginx, PM2
+
+  # * Vault ต้อง Unseal ทุกครั้งที่ restart
+  $env:VAULT_ADDR = "http://127.0.0.1:8200"
+  vault operator unseal <Key 1>
+  vault operator unseal <Key 2>
+  vault operator unseal <Key 3>
+
+  # ตรวจสอบว่า PM2 app กำลังทำงาน
+  pm2 list
+
+  # ถ้า app ไม่ทำงาน ให้ start ใหม่
+  pm2 start all
+
+  # ตรวจสอบสถานะ Windows Services ทั้งหมด
+  Get-Service postgresql-15, RabbitMQ, Redis, MinIO, Kibana, Vault, Jenkins, Nginx |
+      Select-Object Name, Status, StartType
+
+================================================================
+  Environment Variables — food-ordering-service (Windows)
+================================================================
+
+  # ตั้งค่าผ่าน System Environment Variables หรือไฟล์ .env
+  # *** ใช้ localhost แทน Docker container name ***
+
+  # Database
+  DATABASE_URL  = postgresql://postgres:password@localhost:5432/food_ordering
+
+  # Message Broker
+  RABBITMQ_URL  = amqp://nathee:nathee@localhost:5672/
+
+  # Cache
+  REDIS_URL     = redis://localhost:6379
+
+  # Auth
+  JWT_SECRET    = <your-secret>
+  JWT_EXPIRES_IN = 7d
+
+  # Server
+  PORT          = 3001
+
+  # Logging
+  LOG_LEVEL     = info   (debug | info | warn | error)
+
+  # MinIO (Object Storage)
+  MINIO_ENDPOINT        = http://localhost:9000
+  MINIO_ROOT_USER       = minioadmin
+  MINIO_ROOT_PASSWORD   = minioadmin
+  MINIO_BUCKET          = food-images
+
+================================================================
+  แหล่งดาวน์โหลด (Official)
+================================================================
+
+  PostgreSQL   → https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
+  Erlang OTP   → https://www.erlang.org/downloads
+  RabbitMQ     → https://www.rabbitmq.com/docs/install-windows
+  Redis        → https://github.com/tporadowski/redis/releases
+  MinIO        → https://min.io/download#/windows
+  Elasticsearch→ https://www.elastic.co/downloads/elasticsearch
+  Kibana       → https://www.elastic.co/downloads/kibana
+  Filebeat     → https://www.elastic.co/downloads/beats/filebeat
+  Vault        → https://developer.hashicorp.com/vault/install
+  Jenkins      → https://www.jenkins.io/download/
+  Node.js      → https://nodejs.org/en/download
+  Nginx        → http://nginx.org/en/download.html
+  NSSM         → https://nssm.cc/download
+
+================================================================
+  ข้อแตกต่างหลักระหว่าง Docker และ Windows Direct
+================================================================
+
+  Docker                      │ Windows Direct
+  ────────────────────────────┼──────────────────────────────
+  Container networking        │ localhost / 127.0.0.1
+  docker-compose up/down      │ Windows Services (net start/stop)
+  Volumes                     │ C:\apps\... , C:\minio\data
+  docker compose build        │ npm ci && npm run build
+  docker compose up           │ pm2 start / pm2 restart
+  Restart policy              │ NSSM / Windows Service recovery
+  Log aggregation (Filebeat)  │ อ่านจาก C:\apps\...\logs\*.log
+
+================================================================
