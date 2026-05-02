@@ -41,22 +41,16 @@ windows-deployment/
           └── /api/    → localhost:3001 (NestJS)
 
 ================================================================
-  ขั้นตอนที่ 0 — ติดตั้ง NSSM (Service Manager)
+  ขั้นตอนที่ 0 — ติดตั้ง Chocolatey (Package Manager)
 ================================================================
 
-  NSSM ใช้สำหรับติดตั้งโปรแกรมที่ไม่มี Windows Service
-  เป็น Windows Service ได้ (MinIO, Vault, Nginx, Kibana)
+  # เปิด PowerShell ในฐานะ Administrator แล้วรัน:
+  Set-ExecutionPolicy Bypass -Scope Process -Force
+  [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+  iex ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
 
-  # ดาวน์โหลดจาก https://nssm.cc/download
-  Invoke-WebRequest -Uri "https://nssm.cc/release/nssm-2.24.zip" `
-      -OutFile "C:\nssm.zip"
-  Expand-Archive "C:\nssm.zip" -DestinationPath "C:\nssm"
-
-  # คัดลอก nssm.exe ไปไว้ใน System PATH
-  Copy-Item "C:\nssm\nssm-2.24\win64\nssm.exe" -Destination "C:\Windows\System32\nssm.exe"
-
-  # ตรวจสอบ
-  nssm version
+  # ตรวจสอบว่าติดตั้งสำเร็จ
+  choco --version
 
 ================================================================
   ขั้นตอนที่ 1 — ติดตั้ง Infrastructure
@@ -64,120 +58,67 @@ windows-deployment/
 ================================================================
 
   ── 1.1 ติดตั้ง PostgreSQL 15 ────────────────────────────────
-  # ดาวน์โหลด installer จาก https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
-  # เลือก: PostgreSQL 15.x → Windows x86-64
-
-  Invoke-WebRequest -Uri "https://get.enterprisedb.com/postgresql/postgresql-15.6-1-windows-x64.exe" `
-      -OutFile "C:\postgresql-installer.exe"
-
-  # ติดตั้งแบบ Silent (ปรับ superpassword ตามต้องการ)
-  Start-Process -FilePath "C:\postgresql-installer.exe" -Wait -ArgumentList `
-      "--mode unattended",
-      "--superpassword password",
-      "--servicename postgresql-15",
-      "--serviceaccount postgres",
-      "--serverport 5432"
+  choco install postgresql15 --params '/Password:password' -y
+  # บันทึก: Password default = "password" — เปลี่ยนตามต้องการ
 
   # เพิ่ม psql ใน PATH (ปิด-เปิด PowerShell ใหม่หลังรัน)
-  [System.Environment]::SetEnvironmentVariable(
-      "Path",
-      $env:Path + ";C:\Program Files\PostgreSQL\15\bin",
-      "Machine"
-  )
+  $env:Path += ";C:\Program Files\PostgreSQL\15\bin"
+  [System.Environment]::SetEnvironmentVariable("Path", $env:Path + ";C:\Program Files\PostgreSQL\15\bin", "Machine")
 
-  # เปิด PowerShell ใหม่ แล้วสร้าง Database
+  # สร้าง Database
   psql -U postgres -c "CREATE DATABASE food_ordering;"
 
   # ตรวจสอบ
   psql -U postgres -c "\l"
 
-  # Start / Stop Service:
-  #   net start postgresql-15
-  #   net stop  postgresql-15
+  # PostgreSQL จะถูกติดตั้งเป็น Windows Service ชื่อ "postgresql-x64-15"
+  # Start / Stop:
+  #   net start postgresql-x64-15
+  #   net stop  postgresql-x64-15
 
   ── 1.2 ติดตั้ง Erlang และ RabbitMQ ─────────────────────────
-  # ขั้นตอนที่ 1: ติดตั้ง Erlang OTP ก่อน (RabbitMQ ต้องการ)
-  # ดาวน์โหลดจาก https://www.erlang.org/downloads
-  # เลือก: OTP 26.x → Windows 64-bit Binary File
+  choco install erlang -y
+  # ถ้า Erlang ติดตั้งไว้แล้ว (version ใหม่กว่า) ให้ข้าม Erlang และรัน:
+  #   choco install rabbitmq --ignore-dependencies -y
+  choco install rabbitmq -y
 
-  Invoke-WebRequest -Uri "https://github.com/erlang/otp/releases/download/OTP-26.2.5/otp_win64_26.2.5.exe" `
-      -OutFile "C:\erlang-installer.exe"
-  Start-Process -FilePath "C:\erlang-installer.exe" -Wait -ArgumentList "/S"
-
-  # ขั้นตอนที่ 2: ติดตั้ง RabbitMQ
-  # ดาวน์โหลดจาก https://www.rabbitmq.com/docs/install-windows
-  # เลือก: rabbitmq-server-3.13.x.exe
-
-  Invoke-WebRequest -Uri "https://github.com/rabbitmq/rabbitmq-server/releases/download/v3.13.2/rabbitmq-server-3.13.2.exe" `
-      -OutFile "C:\rabbitmq-installer.exe"
-  Start-Process -FilePath "C:\rabbitmq-installer.exe" -Wait -ArgumentList "/S"
-
-  # เพิ่ม PATH ของ RabbitMQ (ปรับ version ตามที่ติดตั้ง)
-  [System.Environment]::SetEnvironmentVariable(
-      "Path",
-      $env:Path + ";C:\Program Files\RabbitMQ Server\rabbitmq_server-3.13.2\sbin",
-      "Machine"
-  )
-
-  # เปิด PowerShell ใหม่ แล้วเปิด Management Plugin
-  rabbitmq-plugins enable rabbitmq_management
+  # เปิดใช้งาน Management Plugin (ปรับ path version ตามที่ติดตั้ง)
+  & "C:\Program Files\RabbitMQ Server\rabbitmq_server-4.2.5\sbin\rabbitmq-plugins.bat" enable rabbitmq_management
 
   # สร้าง User สำหรับ Application
-  rabbitmqctl add_user nathee nathee
-  rabbitmqctl set_user_tags nathee administrator
-  rabbitmqctl set_permissions -p / nathee ".*" ".*" ".*"
+  & "C:\Program Files\RabbitMQ Server\rabbitmq_server-4.2.5\sbin\rabbitmqctl.bat" add_user nathee nathee
+  & "C:\Program Files\RabbitMQ Server\rabbitmq_server-4.2.5\sbin\rabbitmqctl.bat" set_user_tags nathee administrator
+  & "C:\Program Files\RabbitMQ Server\rabbitmq_server-4.2.5\sbin\rabbitmqctl.bat" set_permissions -p / nathee ".*" ".*" ".*"
 
   # ตรวจสอบสถานะ
-  rabbitmqctl status
+  & "C:\Program Files\RabbitMQ Server\rabbitmq_server-4.2.5\sbin\rabbitmqctl.bat" status
 
   # RabbitMQ ถูกติดตั้งเป็น Windows Service ชื่อ "RabbitMQ" โดยอัตโนมัติ
   # Management UI: http://localhost:15672  (guest / guest)
 
   ── 1.3 ติดตั้ง Redis ────────────────────────────────────────
-  # ดาวน์โหลด Windows port ของ Redis จาก
-  # https://github.com/tporadowski/redis/releases
-  # เลือก: Redis-x64-5.0.14.1.msi
-
-  Invoke-WebRequest -Uri "https://github.com/tporadowski/redis/releases/download/v5.0.14.1/Redis-x64-5.0.14.1.msi" `
-      -OutFile "C:\redis-installer.msi"
-
-  # ติดตั้งแบบ Silent
-  Start-Process msiexec.exe -Wait -ArgumentList `
-      "/i C:\redis-installer.msi",
-      "/quiet",
-      "ADDLOCAL=ALL"
-
-  # Redis จะถูกติดตั้งที่ C:\Program Files\Redis\
-  # และติดตั้งเป็น Windows Service ชื่อ "Redis" โดยอัตโนมัติ
-
-  # ตั้งค่า maxmemory ใน redis.windows-service.conf
-  # ไฟล์: C:\Program Files\Redis\redis.windows-service.conf
-  # แก้ไขเพิ่ม:
-  #   maxmemory 256mb
-  #   maxmemory-policy allkeys-lru
-
-  # Restart service เพื่อให้ config มีผล
-  Restart-Service Redis
+  ใช้วิธีติดตั้งจาก exe file แทน
 
   # ตรวจสอบ
-  & "C:\Program Files\Redis\redis-cli.exe" ping
+  redis-cli ping
   # ผลลัพธ์ควรได้: PONG
 
   ── 1.4 ติดตั้ง MinIO ────────────────────────────────────────
-  # ดาวน์โหลด MinIO binary โดยตรงจาก https://min.io/download#/windows
+  # สร้าง folder สำหรับ MinIO
+  New-Item -ItemType Directory -Path "D:\ICS-Projects\minio\data" -Force
+  New-Item -ItemType Directory -Path "D:\ICS-Projects\minio\bin"  -Force
 
-  New-Item -ItemType Directory -Path "C:\minio\data" -Force
-  New-Item -ItemType Directory -Path "C:\minio\bin"  -Force
-
+  # ดาวน์โหลด MinIO binary
   Invoke-WebRequest -Uri "https://dl.min.io/server/minio/release/windows-amd64/minio.exe" `
-      -OutFile "C:\minio\bin\minio.exe"
+      -OutFile "D:\ICS-Projects\minio\bin\minio.exe"
 
   # ดาวน์โหลด MinIO Client (mc.exe)
   Invoke-WebRequest -Uri "https://dl.min.io/client/mc/release/windows-amd64/mc.exe" `
-      -OutFile "C:\minio\bin\mc.exe"
+      -OutFile "D:\ICS-Projects\minio\bin\mc.exe"
 
-  # ติดตั้ง MinIO เป็น Windows Service ด้วย NSSM
-  nssm install MinIO "C:\minio\bin\minio.exe" "server C:\minio\data --console-address :9001"
+  # ติดตั้ง NSSM เพื่อ register MinIO เป็น Windows Service
+  choco install nssm -y
+  nssm install MinIO "D:\ICS-Projects\minio\bin\minio.exe" "server D:\ICS-Projects\minio\data --console-address :9001"
   nssm set MinIO AppEnvironmentExtra "MINIO_ROOT_USER=minioadmin" "MINIO_ROOT_PASSWORD=minioadmin"
   nssm set MinIO Start SERVICE_AUTO_START
   nssm start MinIO
@@ -186,9 +127,9 @@ windows-deployment/
   # Login: minioadmin / minioadmin
 
   # สร้าง Bucket "food-images" (ทำครั้งแรกครั้งเดียว)
-  C:\minio\bin\mc.exe alias set myminio http://localhost:9000 minioadmin minioadmin
-  C:\minio\bin\mc.exe mb myminio/food-images
-  C:\minio\bin\mc.exe anonymous set download myminio/food-images
+  D:\ICS-Projects\minio\bin\mc.exe alias set myminio http://localhost:9000 minioadmin minioadmin
+  D:\ICS-Projects\minio\bin\mc.exe mb myminio/food-images
+  D:\ICS-Projects\minio\bin\mc.exe anonymous set download myminio/food-images
 
 ================================================================
   ขั้นตอนที่ 2 — ติดตั้ง ELK Stack
@@ -196,45 +137,28 @@ windows-deployment/
 ================================================================
 
   ── 2.1 ติดตั้ง Elasticsearch ────────────────────────────────
-  # ดาวน์โหลดจาก https://www.elastic.co/downloads/elasticsearch
-  # เลือก: Windows → ZIP
+  choco install elasticsearch -y
 
-  $esVersion = "8.13.0"
-  Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-$esVersion-windows-x86_64.zip" `
-      -OutFile "C:\elasticsearch.zip"
-  Expand-Archive "C:\elasticsearch.zip" -DestinationPath "C:\"
-  Rename-Item "C:\elasticsearch-$esVersion" "C:\elasticsearch"
+  # Elasticsearch จะถูกติดตั้งที่ C:\ProgramData\chocolatey\lib\elasticsearch\
+  # และติดตั้งเป็น Windows Service ชื่อ "elasticsearch-service-x64" โดยอัตโนมัติ
 
-  # แก้ไข C:\elasticsearch\config\elasticsearch.yml
-  # เปิดไฟล์ด้วย Notepad แล้วเพิ่มบรรทัดต่อไปนี้ท้ายไฟล์:
-  #   xpack.security.enabled: false
-  #   xpack.security.http.ssl.enabled: false
-  Add-Content "C:\elasticsearch\config\elasticsearch.yml" "`nxpack.security.enabled: false"
-  Add-Content "C:\elasticsearch\config\elasticsearch.yml" "`nxpack.security.http.ssl.enabled: false"
+  # แก้ไข elasticsearch.yml เพื่อปิด security (สำหรับ development)
+  # ไฟล์: C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml
+  Add-Content "C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml" "`nxpack.security.enabled: false"
+  Add-Content "C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml" "`nxpack.security.http.ssl.enabled: false"
 
-  # ติดตั้งเป็น Windows Service
-  & "C:\elasticsearch\bin\elasticsearch-service.bat" install
-  & "C:\elasticsearch\bin\elasticsearch-service.bat" manager
-  # *** ใน Service Manager ตั้ง Startup Type เป็น Automatic ***
-
-  & "C:\elasticsearch\bin\elasticsearch-service.bat" start
+  # Restart service เพื่อให้ config มีผล
+  Restart-Service elasticsearch-service-x64
 
   # ตรวจสอบ (~30 วินาที หลัง start)
   Invoke-RestMethod http://localhost:9200/_cluster/health?pretty
 
   ── 2.2 ติดตั้ง Kibana ───────────────────────────────────────
-  # ดาวน์โหลดจาก https://www.elastic.co/downloads/kibana
-  # เลือก: Windows → ZIP (ต้องใช้ version เดียวกับ Elasticsearch)
+  choco install kibana -y
 
-  $kbVersion = "8.13.0"
-  Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/kibana/kibana-$kbVersion-windows-x86_64.zip" `
-      -OutFile "C:\kibana.zip"
-  Expand-Archive "C:\kibana.zip" -DestinationPath "C:\"
-  Rename-Item "C:\kibana-$kbVersion" "C:\kibana"
-
+  # Kibana จะถูกติดตั้งที่ C:\ProgramData\chocolatey\lib\kibana\
   # ติดตั้งเป็น Windows Service ด้วย NSSM
-  nssm install Kibana "C:\kibana\bin\kibana.bat"
-  nssm set Kibana AppDirectory "C:\kibana"
+  nssm install Kibana "C:\ProgramData\chocolatey\lib\kibana\tools\kibana-9.3.4\bin\kibana.bat"
   nssm set Kibana Start SERVICE_AUTO_START
   nssm start Kibana
 
@@ -246,23 +170,16 @@ windows-deployment/
   #   คลิก "Create data view"
 
   ── 2.3 ติดตั้ง Filebeat ─────────────────────────────────────
-  # ดาวน์โหลดจาก https://www.elastic.co/downloads/beats/filebeat
-  # เลือก: Windows → ZIP (ต้องใช้ version เดียวกับ Elasticsearch)
+  choco install filebeat -y
 
-  $fbVersion = "8.13.0"
-  Invoke-WebRequest -Uri "https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-$fbVersion-windows-x86_64.zip" `
-      -OutFile "C:\filebeat.zip"
-  Expand-Archive "C:\filebeat.zip" -DestinationPath "C:\"
-  Rename-Item "C:\filebeat-$fbVersion-windows-x86_64" "C:\filebeat"
-
-  # แก้ไข C:\filebeat\filebeat.yml
-  # เปิดไฟล์ด้วย Notepad และตั้งค่าให้อ่าน log ของ application:
+  # แก้ไข C:\ProgramData\chocolatey\lib\filebeat\tools\filebeat.yml
+  # ให้ชี้ไปที่ log ของ application:
   #
   # filebeat.inputs:
   # - type: log
   #   enabled: true
   #   paths:
-  #     - C:\apps\food-ordering-service\logs\*.log
+  #     - D:\ICS-Projects\apps\food-ordering-service\logs\*.log
   #   fields:
   #     app: food-ordering-service
   #   fields_under_root: true
@@ -272,49 +189,27 @@ windows-deployment/
   #   index: "food-ordering-%{+yyyy.MM.dd}"
 
   # ติดตั้ง และ start Filebeat service
-  PowerShell -ExecutionPolicy Bypass -File "C:\filebeat\install-service-filebeat.ps1"
+  PowerShell -ExecutionPolicy Bypass -File "C:\ProgramData\chocolatey\lib\filebeat\tools\install-service-filebeat.ps1"
   Start-Service filebeat
 
 ================================================================
   ขั้นตอนที่ 3 — ติดตั้ง HashiCorp Vault
 ================================================================
 
-  # ดาวน์โหลดจาก https://developer.hashicorp.com/vault/install
-  # เลือก: Windows → AMD64 → zip
+  choco install vault -y
 
-  Invoke-WebRequest -Uri "https://releases.hashicorp.com/vault/1.16.1/vault_1.16.1_windows_amd64.zip" `
-      -OutFile "C:\vault.zip"
-  New-Item -ItemType Directory -Path "C:\vault\bin"    -Force
-  New-Item -ItemType Directory -Path "C:\vault\data"   -Force
-  New-Item -ItemType Directory -Path "C:\vault\config" -Force
-  Expand-Archive "C:\vault.zip" -DestinationPath "C:\vault\bin"
+  # ตรวจสอบ path ของ vault.exe ที่ choco ติดตั้ง
+  where.exe vault
+  # ปกติจะได้: C:\ProgramData\chocolatey\bin\vault.exe
 
-  # เพิ่ม vault.exe ใน PATH
-  [System.Environment]::SetEnvironmentVariable(
-      "Path",
-      $env:Path + ";C:\vault\bin",
-      "Machine"
-  )
+  # สร้าง folder สำหรับ config และ data
+  New-Item -ItemType Directory -Path "D:\ICS-Projects\apps\vault\data"   -Force
+  New-Item -ItemType Directory -Path "D:\ICS-Projects\apps\vault\config" -Force
 
-  # สร้างไฟล์ config: C:\vault\config\config.hcl
-  # เปิด Notepad แล้วสร้างไฟล์ใหม่ที่ C:\vault\config\config.hcl
-  # โดยใส่เนื้อหาดังนี้:
-  #
-  #   storage "file" {
-  #     path = "C:/vault/data"
-  #   }
-  #
-  #   listener "tcp" {
-  #     address     = "0.0.0.0:8200"
-  #     tls_disable = 1
-  #   }
-  #
-  #   api_addr = "http://0.0.0.0:8200"
-  #   ui       = true
-
+  # สร้างไฟล์ config (ใช้ forward slash ใน HCL เสมอ)
   @"
 storage "file" {
-  path = "C:/vault/data"
+  path = "D:/ICS-Projects/apps/vault/data"
 }
 
 listener "tcp" {
@@ -324,16 +219,38 @@ listener "tcp" {
 
 api_addr = "http://0.0.0.0:8200"
 ui       = true
-"@ | Set-Content "C:\vault\config\config.hcl"
+"@ | Set-Content "D:\ICS-Projects\apps\vault\config\config.hcl" -Encoding UTF8
 
   # ติดตั้ง Vault เป็น Windows Service ด้วย NSSM
-  nssm install Vault "C:\vault\bin\vault.exe" "server -config=C:\vault\config\config.hcl"
+  # *** ต้องแยก executable กับ arguments ออกจากกัน ***
+  nssm install Vault "C:\ProgramData\chocolatey\bin\vault.exe"
+  nssm set Vault AppParameters "server -config=D:\ICS-Projects\apps\vault\config\config.hcl"
+  nssm set Vault AppDirectory  "D:\ICS-Projects\apps\vault"
   nssm set Vault Start SERVICE_AUTO_START
+  nssm set Vault AppStdout "D:\ICS-Projects\apps\vault\vault.log"
+  nssm set Vault AppStderr "D:\ICS-Projects\apps\vault\vault.log"
+
+  # เปิด Firewall port 8200
+  New-NetFirewallRule -DisplayName "Vault" -Direction Inbound -Protocol TCP -LocalPort 8200 -Action Allow
+
+  # Start service
   nssm start Vault
 
-  # เปิด PowerShell ใหม่ แล้วตั้งค่า VAULT_ADDR
+  # รอ service พร้อม (~5 วินาที) แล้วตรวจสอบ
+  Start-Sleep -Seconds 5
+  nssm status Vault
+  # ต้องได้: SERVICE_RUNNING
+
+  # ถ้า status ไม่ใช่ SERVICE_RUNNING ให้ดู log
+  Get-Content "D:\ICS-Projects\apps\vault\vault.log"
+
+  # ตั้งค่า VAULT_ADDR (ต้องตั้งก่อนรัน vault command ทุกครั้ง)
   [System.Environment]::SetEnvironmentVariable("VAULT_ADDR", "http://127.0.0.1:8200", "Machine")
   $env:VAULT_ADDR = "http://127.0.0.1:8200"
+
+  # ตรวจสอบว่า Vault ตอบสนองก่อน init
+  vault status
+  # ต้องได้ Initialized: false, Sealed: true (ถ้าเพิ่ง start ครั้งแรก)
 
   # Init Vault (ทำครั้งแรกครั้งเดียว)
   vault operator init -key-shares=5 -key-threshold=3
@@ -356,21 +273,24 @@ ui       = true
 
   # Vault UI: http://localhost:8200
 
+  # ── Troubleshooting ──────────────────────────────────────────
+  # ถ้า service ไม่ start:
+  #   1. ตรวจสอบ log: Get-Content "D:\ICS-Projects\apps\vault\vault.log"
+  #   2. ตรวจสอบ path vault.exe: where.exe vault
+  #   3. ลอง start ด้วย path เต็ม:
+  #      nssm set Vault Application "C:\ProgramData\chocolatey\bin\vault.exe"
+  #      nssm restart Vault
+  #
+  # ถ้าเข้า http://localhost:8200 ไม่ได้ทั้งที่ service running:
+  #   1. ตรวจสอบ Firewall: Get-NetFirewallRule -DisplayName "Vault"
+  #   2. ตรวจสอบ port เปิดอยู่: netstat -ano | findstr :8200
+  #   3. ตรวจสอบ VAULT_ADDR: echo $env:VAULT_ADDR
+
 ================================================================
   ขั้นตอนที่ 4 — ติดตั้ง Jenkins
 ================================================================
 
-  # ดาวน์โหลดจาก https://www.jenkins.io/download/
-  # เลือก: Windows → jenkins.msi (LTS)
-
-  Invoke-WebRequest -Uri "https://get.jenkins.io/windows-stable/2.440.2/jenkins.msi" `
-      -OutFile "C:\jenkins-installer.msi"
-
-  # ติดตั้งแบบ Silent
-  Start-Process msiexec.exe -Wait -ArgumentList `
-      "/i C:\jenkins-installer.msi",
-      "/quiet",
-      "JENKINSDIR=C:\Jenkins"
+  choco install jenkins -y
 
   # Jenkins ถูกติดตั้งเป็น Windows Service โดยอัตโนมัติ
   # Jenkins Home: C:\ProgramData\Jenkins\.jenkins
@@ -397,19 +317,9 @@ ui       = true
   ขั้นตอนที่ 5 — ติดตั้ง Node.js และ PM2
 ================================================================
 
-  # ดาวน์โหลด Node.js LTS จาก https://nodejs.org/en/download
-  # เลือก: Windows Installer (.msi) → 64-bit
+  choco install nodejs-lts -y
 
-  Invoke-WebRequest -Uri "https://nodejs.org/dist/v20.12.2/node-v20.12.2-x64.msi" `
-      -OutFile "C:\nodejs-installer.msi"
-
-  # ติดตั้งแบบ Silent
-  Start-Process msiexec.exe -Wait -ArgumentList `
-      "/i C:\nodejs-installer.msi",
-      "/quiet",
-      "ADDLOCAL=ALL"
-
-  # เปิด PowerShell ใหม่ แล้วตรวจสอบ
+  # ปิด-เปิด PowerShell ใหม่ แล้วตรวจสอบ
   node --version
   npm  --version
 
@@ -421,8 +331,8 @@ ui       = true
   pm2-startup install
 
   # สร้าง folder สำหรับ Application
-  New-Item -ItemType Directory -Path "C:\apps\food-ordering-service\logs" -Force
-  New-Item -ItemType Directory -Path "C:\apps\food-ordering-system\logs"  -Force
+  New-Item -ItemType Directory -Path "D:\ICS-Projects\apps\food-ordering-service\logs" -Force
+  New-Item -ItemType Directory -Path "D:\ICS-Projects\apps\food-ordering-system\logs"  -Force
 
 ================================================================
   ขั้นตอนที่ 6 — สร้าง Jenkins Pipeline Jobs
@@ -458,22 +368,17 @@ ui       = true
   #   1. ดึง GitHub credentials จาก Vault
   #   2. Clone source code
   #   3. npm ci && npm run build
-  #   4. คัดลอกไฟล์ไปยัง C:\apps\...
+  #   4. คัดลอกไฟล์ไปยัง D:\ICS-Projects\apps\...
   #   5. PM2 restart (หรือ start ถ้าครั้งแรก)
 
 ================================================================
   ขั้นตอนที่ 8 — ติดตั้งและตั้งค่า Nginx
 ================================================================
 
-  # ดาวน์โหลดจาก http://nginx.org/en/download.html
-  # เลือก: Stable version → nginx/Windows-x.xx.x (zip)
+  choco install nginx -y
+  # Nginx จะถูกติดตั้งที่ C:\tools\nginx\
 
-  Invoke-WebRequest -Uri "http://nginx.org/download/nginx-1.26.0.zip" `
-      -OutFile "C:\nginx.zip"
-  Expand-Archive "C:\nginx.zip" -DestinationPath "C:\"
-  Rename-Item "C:\nginx-1.26.0" "C:\nginx"
-
-  # แก้ไขไฟล์ C:\nginx\conf\nginx.conf
+  # แก้ไขไฟล์ C:\tools\nginx\conf\nginx.conf
   # เปิดด้วย Notepad แล้วแทนที่เนื้อหาด้วย config ด้านล่าง:
   #
   # worker_processes auto;
@@ -505,13 +410,13 @@ ui       = true
   # }
 
   # ติดตั้ง Nginx เป็น Windows Service ด้วย NSSM
-  nssm install Nginx "C:\nginx\nginx.exe"
-  nssm set Nginx AppDirectory "C:\nginx"
+  nssm install Nginx "C:\tools\nginx\nginx.exe"
+  nssm set Nginx AppDirectory "C:\tools\nginx"
   nssm set Nginx Start SERVICE_AUTO_START
   nssm start Nginx
 
   # ตรวจสอบ config ก่อน start
-  & "C:\nginx\nginx.exe" -t
+  & "C:\tools\nginx\nginx.exe" -t
 
   # เปิดแอป: http://localhost
 
@@ -545,7 +450,7 @@ ui       = true
 ================================================================
 
   # Services ต่อไปนี้ถูกตั้งเป็น Automatic จะ start เองอัตโนมัติ:
-  #   postgresql-15, RabbitMQ, Redis, MinIO, elasticsearch-service-x64-8,
+  #   postgresql-x64-15, RabbitMQ, Redis, MinIO, elasticsearch-service-x64,
   #   Kibana, filebeat, Vault*, Jenkins, Nginx, PM2
 
   # * Vault ต้อง Unseal ทุกครั้งที่ restart
@@ -561,8 +466,7 @@ ui       = true
   pm2 start all
 
   # ตรวจสอบสถานะ Windows Services ทั้งหมด
-  Get-Service postgresql-15, RabbitMQ, Redis, MinIO, Kibana, Vault, Jenkins, Nginx |
-      Select-Object Name, Status, StartType
+  Get-Service | Where-Object { $_.DisplayName -match "PostgreSQL|RabbitMQ|Redis|MinIO|Elastic|Kibana|Vault|Jenkins|Nginx" }
 
 ================================================================
   Environment Variables — food-ordering-service (Windows)
@@ -597,24 +501,6 @@ ui       = true
   MINIO_BUCKET          = food-images
 
 ================================================================
-  แหล่งดาวน์โหลด (Official)
-================================================================
-
-  PostgreSQL   → https://www.enterprisedb.com/downloads/postgres-postgresql-downloads
-  Erlang OTP   → https://www.erlang.org/downloads
-  RabbitMQ     → https://www.rabbitmq.com/docs/install-windows
-  Redis        → https://github.com/tporadowski/redis/releases
-  MinIO        → https://min.io/download#/windows
-  Elasticsearch→ https://www.elastic.co/downloads/elasticsearch
-  Kibana       → https://www.elastic.co/downloads/kibana
-  Filebeat     → https://www.elastic.co/downloads/beats/filebeat
-  Vault        → https://developer.hashicorp.com/vault/install
-  Jenkins      → https://www.jenkins.io/download/
-  Node.js      → https://nodejs.org/en/download
-  Nginx        → http://nginx.org/en/download.html
-  NSSM         → https://nssm.cc/download
-
-================================================================
   ข้อแตกต่างหลักระหว่าง Docker และ Windows Direct
 ================================================================
 
@@ -622,10 +508,10 @@ ui       = true
   ────────────────────────────┼──────────────────────────────
   Container networking        │ localhost / 127.0.0.1
   docker-compose up/down      │ Windows Services (net start/stop)
-  Volumes                     │ C:\apps\... , C:\minio\data
+  Volumes                     │ D:\ICS-Projects\apps\... , minio\data
   docker compose build        │ npm ci && npm run build
   docker compose up           │ pm2 start / pm2 restart
   Restart policy              │ NSSM / Windows Service recovery
-  Log aggregation (Filebeat)  │ อ่านจาก C:\apps\...\logs\*.log
+  Log aggregation (Filebeat)  │ อ่านจาก D:\ICS-Projects\apps\...\logs\*.log
 
 ================================================================
