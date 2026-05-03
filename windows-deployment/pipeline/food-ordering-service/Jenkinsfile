@@ -68,10 +68,25 @@ pipeline {
                     if not exist "%APP_DIR%" mkdir "%APP_DIR%"
                     xcopy /E /I /Y src\\dist          "%APP_DIR%\\dist"         || exit /b 1
                     xcopy /E /I /Y src\\node_modules  "%APP_DIR%\\node_modules" || exit /b 1
+                    xcopy /E /I /Y src\\prisma        "%APP_DIR%\\prisma"        || exit /b 1
                     copy /Y        src\\package.json  "%APP_DIR%\\package.json" || exit /b 1
                 """
+            }
+        }
 
-                // Restart หรือ Start ด้วย PM2
+        // ─── Step 5: Migrate Database ──────────────────────────────────────────
+        stage('Migrate Database') {
+            steps {
+                bat """
+                    cd /d "%APP_DIR%"
+                    npx prisma migrate deploy
+                """
+            }
+        }
+
+        // ─── Step 6: Start / Restart App ───────────────────────────────────────
+        stage('Start App') {
+            steps {
                 bat """
                     pm2 describe %APP_NAME% >nul 2>&1 && (
                         pm2 restart %APP_NAME%
