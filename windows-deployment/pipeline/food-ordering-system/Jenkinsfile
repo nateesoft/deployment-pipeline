@@ -46,7 +46,32 @@ pipeline {
             }
         }
 
-        // ─── Step 3: Build ─────────────────────────────────────────────────────
+        // ─── Step 3: Write Env (ต้องทำก่อน Build เพราะ NEXT_PUBLIC_* ถูก bake ตอน build) ──
+        stage('Write Env') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-system/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'NEXT_PUBLIC_API_URL']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        (
+                            echo NEXT_PUBLIC_API_URL=%NEXT_PUBLIC_API_URL%
+                        ) > src\\.env.production
+                    """
+                }
+            }
+        }
+
+        // ─── Step 4: Build ─────────────────────────────────────────────────────
         stage('Build') {
             steps {
                 dir('src') {
@@ -55,17 +80,19 @@ pipeline {
             }
         }
 
-        // ─── Step 4: Deploy ────────────────────────────────────────────────────
+        // ─── Step 5: Deploy ────────────────────────────────────────────────────
         stage('Deploy Frontend') {
             steps {
                 // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
                 bat """
-                    if not exist "%APP_DIR%" mkdir "%APP_DIR%"
+                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
+                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
                     xcopy /E /I /Y src\\.next         "%APP_DIR%\\.next"
                     xcopy /E /I /Y src\\public        "%APP_DIR%\\public"
                     xcopy /E /I /Y src\\node_modules  "%APP_DIR%\\node_modules"
                     copy /Y        src\\package.json  "%APP_DIR%\\package.json"
-                    copy /Y        src\\next.config.* "%APP_DIR%\\" 2>nul || echo "no next.config found"
+                    copy /Y        src\\.env.production "%APP_DIR%\\.env.production"
+                    copy /Y        src\\next.config.* "%APP_DIR%\\" 2>nul || echo no next.config found
                 """
 
                 // Restart หรือ Start ด้วย PM2
