@@ -63,18 +63,68 @@ pipeline {
                     bat "npm prune --omit=dev"
                 }
 
-                // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
+                // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR (robocopy /XO = skip ไฟล์ที่ไม่เปลี่ยน)
                 bat """
                     if not exist "%APP_DIR%" mkdir "%APP_DIR%"
-                    xcopy /E /I /Y src\\dist          "%APP_DIR%\\dist"         || exit /b 1
-                    xcopy /E /I /Y src\\node_modules  "%APP_DIR%\\node_modules" || exit /b 1
-                    xcopy /E /I /Y src\\prisma        "%APP_DIR%\\prisma"        || exit /b 1
-                    copy /Y        src\\package.json  "%APP_DIR%\\package.json" || exit /b 1
+                    robocopy src\\dist         "%APP_DIR%\\dist"         /E /XO /MT:8 /NJH /NJS
+                    if %ERRORLEVEL% GTR 1 exit /b %ERRORLEVEL%
+                    robocopy src\\node_modules "%APP_DIR%\\node_modules" /E /XO /MT:8 /NJH /NJS
+                    if %ERRORLEVEL% GTR 1 exit /b %ERRORLEVEL%
+                    robocopy src\\prisma       "%APP_DIR%\\prisma"       /E /XO /MT:8 /NJH /NJS
+                    if %ERRORLEVEL% GTR 1 exit /b %ERRORLEVEL%
+                    copy /Y src\\package.json  "%APP_DIR%\\package.json" || exit /b 1
                 """
             }
         }
 
-        // ─── Step 5: Migrate Database ──────────────────────────────────────────
+        // ─── Step 5: Write .env from Vault ────────────────────────────────────────
+        stage('Write Env') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-service/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'DATABASE_URL',        vaultKey: 'DATABASE_URL'],
+                            [envVar: 'JWT_SECRET',          vaultKey: 'JWT_SECRET'],
+                            [envVar: 'JWT_EXPIRES_IN',      vaultKey: 'JWT_EXPIRES_IN'],
+                            [envVar: 'PORT',                vaultKey: 'PORT'],
+                            [envVar: 'RABBITMQ_URL',        vaultKey: 'RABBITMQ_URL'],
+                            [envVar: 'RABBITMQ_EXCHANGE',   vaultKey: 'RABBITMQ_EXCHANGE'],
+                            [envVar: 'RABBITMQ_PREFETCH',   vaultKey: 'RABBITMQ_PREFETCH'],
+                            [envVar: 'LOG_LEVEL',           vaultKey: 'LOG_LEVEL'],
+                            [envVar: 'MINIO_ENDPOINT',      vaultKey: 'MINIO_ENDPOINT'],
+                            [envVar: 'MINIO_ROOT_USER',     vaultKey: 'MINIO_ROOT_USER'],
+                            [envVar: 'MINIO_ROOT_PASSWORD', vaultKey: 'MINIO_ROOT_PASSWORD'],
+                            [envVar: 'MINIO_BUCKET',        vaultKey: 'MINIO_BUCKET']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        (
+                            echo DATABASE_URL=%DATABASE_URL%
+                            echo JWT_SECRET=%JWT_SECRET%
+                            echo JWT_EXPIRES_IN=%JWT_EXPIRES_IN%
+                            echo PORT=%PORT%
+                            echo RABBITMQ_URL=%RABBITMQ_URL%
+                            echo RABBITMQ_EXCHANGE=%RABBITMQ_EXCHANGE%
+                            echo RABBITMQ_PREFETCH=%RABBITMQ_PREFETCH%
+                            echo LOG_LEVEL=%LOG_LEVEL%
+                            echo MINIO_ENDPOINT=%MINIO_ENDPOINT%
+                            echo MINIO_ROOT_USER=%MINIO_ROOT_USER%
+                            echo MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%
+                            echo MINIO_BUCKET=%MINIO_BUCKET%
+                        ) > "%APP_DIR%\\.env"
+                    """
+                }
+            }
+        }
+
+        // ─── Step 6: Migrate Database ──────────────────────────────────────────
         stage('Migrate Database') {
             steps {
                 bat """
@@ -84,7 +134,7 @@ pipeline {
             }
         }
 
-        // ─── Step 6: Start / Restart App ───────────────────────────────────────
+        // ─── Step 7: Start / Restart App ───────────────────────────────────────
         stage('Start App') {
             steps {
                 bat """
