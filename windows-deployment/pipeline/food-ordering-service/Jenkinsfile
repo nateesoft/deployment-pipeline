@@ -67,11 +67,11 @@ pipeline {
                 bat """
                     if not exist "%APP_DIR%" mkdir "%APP_DIR%"
                     robocopy src\\dist         "%APP_DIR%\\dist"         /E /XO /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 1 exit /b %ERRORLEVEL%
+                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
                     robocopy src\\node_modules "%APP_DIR%\\node_modules" /E /XO /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 1 exit /b %ERRORLEVEL%
+                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
                     robocopy src\\prisma       "%APP_DIR%\\prisma"       /E /XO /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 1 exit /b %ERRORLEVEL%
+                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
                     copy /Y src\\package.json  "%APP_DIR%\\package.json" || exit /b 1
                 """
             }
