@@ -71,6 +71,8 @@ pipeline {
 
                     fc src\\package-lock.json "%APP_DIR%\\package-lock.json" >nul 2>&1
                     if %ERRORLEVEL% NEQ 0 (
+                        echo [pm2] Stopping app to release native module locks
+                        pm2 stop %APP_NAME% >nul 2>&1
                         echo [npm] Dependencies changed - running npm ci
                         copy /Y src\\package-lock.json "%APP_DIR%\\package-lock.json" || exit /b 1
                         cd /d "%APP_DIR%"
