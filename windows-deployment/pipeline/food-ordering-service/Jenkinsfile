@@ -147,10 +147,10 @@ pipeline {
                         ]
                     ]]
                 ) {
-                    bat """
-                        cd /d "%APP_DIR%"
-                        npx prisma migrate deploy
-                    """
+                    // รันจาก src เพราะ prisma.config.ts และ node_modules อยู่ที่นี่
+                    dir('src') {
+                        bat "npx prisma migrate deploy"
+                    }
                 }
             }
         }
