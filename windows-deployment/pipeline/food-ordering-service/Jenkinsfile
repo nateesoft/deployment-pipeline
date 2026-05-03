@@ -134,10 +134,24 @@ pipeline {
         // ─── Step 6: Migrate Database ──────────────────────────────────────────
         stage('Migrate Database') {
             steps {
-                bat """
-                    cd /d "%APP_DIR%"
-                    npx prisma migrate deploy
-                """
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-service/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'DATABASE_URL', vaultKey: 'DATABASE_URL']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        cd /d "%APP_DIR%"
+                        npx prisma migrate deploy
+                    """
+                }
             }
         }
 
