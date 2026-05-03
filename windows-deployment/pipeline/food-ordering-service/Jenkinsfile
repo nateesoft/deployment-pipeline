@@ -41,7 +41,7 @@ pipeline {
         stage('Install') {
             steps {
                 dir('src') {
-                    bat "npm ci --omit=dev"
+                    bat "npm ci"
                 }
             }
         }
@@ -58,6 +58,11 @@ pipeline {
         // ─── Step 4: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
+                // ลบ devDependencies ออกก่อน copy เพื่อลดขนาด node_modules
+                dir('src') {
+                    bat "npm prune --omit=dev"
+                }
+
                 // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
                 bat """
                     if not exist "%APP_DIR%" mkdir "%APP_DIR%"
