@@ -67,19 +67,14 @@ pipeline {
                     robocopy src\\prisma "%APP_DIR%\\prisma" /E /MIR /MT:8 /NJH /NJS
                     if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
 
-                    copy /Y src\\package.json "%APP_DIR%\\package.json" || exit /b 1
+                    copy /Y src\\package.json      "%APP_DIR%\\package.json"      || exit /b 1
+                    copy /Y src\\package-lock.json "%APP_DIR%\\package-lock.json" || exit /b 1
 
-                    fc src\\package-lock.json "%APP_DIR%\\package-lock.json" >nul 2>&1
-                    if %ERRORLEVEL% NEQ 0 (
-                        echo [pm2] Stopping app to release native module locks
-                        pm2 stop %APP_NAME% >nul 2>&1
-                        echo [npm] Dependencies changed - running npm ci
-                        copy /Y src\\package-lock.json "%APP_DIR%\\package-lock.json" || exit /b 1
-                        cd /d "%APP_DIR%"
-                        npm ci --omit=dev
-                    ) else (
-                        echo [npm] Dependencies unchanged - skipping npm ci
-                    )
+                    echo [pm2] Stopping app to release native module locks
+                    pm2 stop %APP_NAME% >nul 2>&1
+                    echo [npm] Running npm ci --omit=dev
+                    cd /d "%APP_DIR%"
+                    npm ci --omit=dev
                 """
             }
         }
