@@ -388,42 +388,43 @@ ui       = true
   # แก้ไขไฟล์ C:\tools\nginx\conf\nginx.conf
   # เปิดด้วย Notepad แล้วแทนที่เนื้อหาด้วย config ด้านล่าง:
   #
-  # worker_processes auto;
-  # events { worker_connections 1024; }
-  #
-  # http {
-  #   include       mime.types;
-  #   default_type  application/octet-stream;
-  #
-  #   upstream frontend { server 127.0.0.1:3000; }
-  #   upstream backend  { server 127.0.0.1:3001; }
-  #
-  #   server {
-  #     listen 80;
-  #     server_name _;
-  #
-  #     location /api/ {
-  #       proxy_pass         http://backend/api/;
-  #       proxy_set_header   Host $host;
-  #       proxy_set_header   X-Real-IP $remote_addr;
-  #     }
-  #
-  #     location / {
-  #       proxy_pass         http://frontend/;
-  #       proxy_set_header   Host $host;
-  #       proxy_set_header   X-Real-IP $remote_addr;
-  #     }
-  #   }
-  # }
+  
+  worker_processes auto;
+  events { worker_connections 1024; }
+
+  http {
+    include       mime.types;
+    default_type  application/octet-stream;
+  
+    upstream frontend { server 127.0.0.1:3000; }
+    upstream backend  { server 127.0.0.1:3001; }
+  
+    server {
+      listen 80;
+      server_name _;
+  
+      location /api/ {
+        proxy_pass         http://backend/api/;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+      }
+  
+      location / {
+        proxy_pass         http://frontend/;
+        proxy_set_header   Host $host;
+        proxy_set_header   X-Real-IP $remote_addr;
+      }
+     }
+   }
 
   # ติดตั้ง Nginx เป็น Windows Service ด้วย NSSM
-  nssm install Nginx "C:\tools\nginx\nginx.exe"
-  nssm set Nginx AppDirectory "C:\tools\nginx"
+  nssm install Nginx "C:\tools\nginx-1.29.8\nginx.exe"
+  nssm set Nginx AppDirectory "C:\tools\nginx-1.29.8"
   nssm set Nginx Start SERVICE_AUTO_START
   nssm start Nginx
 
   # ตรวจสอบ config ก่อน start
-  & "C:\tools\nginx\nginx.exe" -t
+  & "C:\tools\nginx-1.29.8\nginx.exe" -t
 
   # เปิดแอป: http://localhost
 

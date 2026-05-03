@@ -73,7 +73,7 @@ pipeline {
                     pm2 describe %APP_NAME% >nul 2>&1 && (
                         pm2 restart %APP_NAME%
                     ) || (
-                        pm2 start npm ^
+                        pm2 start "%APP_DIR%\\node_modules\\next\\dist\\bin\\next" ^
                             --name %APP_NAME% ^
                             --cwd "%APP_DIR%" ^
                             --log "%APP_DIR%\\logs\\app.log" ^
