@@ -4,7 +4,7 @@ pipeline {
     // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
     environment {
         BRANCH_BACKEND = 'main'
-        APP_DIR        = 'D:\ICS-Projects\apps\\food-ordering-service'
+        APP_DIR        = 'D:\\ICS-Projects\\apps\\food-ordering-service'
         APP_NAME       = 'food-ordering-service'
     }
 

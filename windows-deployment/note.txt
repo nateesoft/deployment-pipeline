@@ -145,6 +145,7 @@ windows-deployment/
   # แก้ไข elasticsearch.yml เพื่อปิด security (สำหรับ development)
   # ไฟล์: C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml
   Add-Content "C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml" "`nxpack.security.enabled: false"
+  Add-Content "C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml" "`nxpack.security.enrollment.enabled: true"
   Add-Content "C:\ProgramData\chocolatey\lib\elasticsearch\tools\elasticsearch-9.3.2\config\elasticsearch.yml" "`nxpack.security.http.ssl.enabled: false"
 
   # Restart service เพื่อให้ config มีผล
@@ -161,6 +162,12 @@ windows-deployment/
   nssm install Kibana "C:\ProgramData\chocolatey\lib\kibana\tools\kibana-9.3.4\bin\kibana.bat"
   nssm set Kibana Start SERVICE_AUTO_START
   nssm start Kibana
+
+  # แก้ไข config ของ kibana ด้วย
+  # C:\ProgramData\chocolatey\lib\kibana\tools\kibana-9.3.4\config\kibana.yml
+  server.port: 5601
+  server.host: "localhost"
+  elasticsearch.hosts: ["http://localhost:9200"]
 
   # เปิด Kibana UI: http://localhost:5601
   # ตั้งค่า Data View (ทำครั้งแรกครั้งเดียว):
@@ -233,7 +240,7 @@ ui       = true
   # เปิด Firewall port 8200
   New-NetFirewallRule -DisplayName "Vault" -Direction Inbound -Protocol TCP -LocalPort 8200 -Action Allow
 
-  # Start service
+  # Start service (nssm stop Vault)
   nssm start Vault
 
   # รอ service พร้อม (~5 วินาที) แล้วตรวจสอบ
