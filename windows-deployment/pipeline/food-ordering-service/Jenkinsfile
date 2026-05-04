@@ -62,9 +62,11 @@ pipeline {
                     if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
                     if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
 
-                    robocopy src\\dist   "%APP_DIR%\\dist"   /E /MIR /MT:8 /NJH /NJS
+                    robocopy src\\dist         "%APP_DIR%\\dist"         /E /MIR /MT:8 /NJH /NJS
                     if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
-                    robocopy src\\prisma "%APP_DIR%\\prisma" /E /MIR /MT:8 /NJH /NJS
+                    robocopy src\\prisma       "%APP_DIR%\\prisma"       /E /MIR /MT:8 /NJH /NJS
+                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
+                    robocopy src\\node_modules "%APP_DIR%\\node_modules" /E /MIR /MT:8 /NJH /NJS
                     if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
 
                     copy /Y src\\package.json      "%APP_DIR%\\package.json"      || exit /b 1
@@ -75,8 +77,6 @@ pipeline {
                 """
                 dir("${APP_DIR}") {
                     bat """
-                        echo [npm] Running npm ci in %CD%
-                        npm ci
                         echo [prisma] Generating Prisma Client
                         npx prisma generate
                         echo [npm] Pruning dev dependencies
