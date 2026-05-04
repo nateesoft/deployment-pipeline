@@ -56,8 +56,32 @@ pipeline {
             }
         }
 
-        // ─── Step 4: DB Migration ──────────────────────────────────────────────
-        // ใช้ DATABASE_URL จาก System Environment Variables ที่ตั้งค่าไว้บน Windows Server
+        // ─── Step 4: Write Env ────────────────────────────────────────────────────
+        // prisma.config.ts ใช้ dotenv/config อ่าน DATABASE_URL จากไฟล์ .env
+        // จึงต้องสร้าง .env ก่อนรัน migrate (ไฟล์ .env อยู่ใน .gitignore)
+        stage('Write Env') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-service/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'DATABASE_URL', vaultKey: 'DATABASE_URL']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        (echo DATABASE_URL=%DATABASE_URL%) > src\\.env
+                    """
+                }
+            }
+        }
+
+        // ─── Step 5: DB Migration ──────────────────────────────────────────────
         stage('DB Migration') {
             steps {
                 dir('src') {
@@ -66,7 +90,7 @@ pipeline {
             }
         }
 
-        // ─── Step 5: Deploy ────────────────────────────────────────────────────
+        // ─── Step 6: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
                 // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
