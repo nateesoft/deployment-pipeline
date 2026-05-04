@@ -1,0 +1,131 @@
+pipeline {
+    agent any
+
+    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
+    environment {
+        BRANCH_FRONTEND = 'main'
+        APP_DIR         = '/Users/nateelive/Documents/apps/food-ordering-system'
+        APP_NAME        = 'food-ordering-system'
+    }
+
+    stages {
+
+        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/jenkins/github',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'GITHUB_USER',  vaultKey: 'username'],
+                            [envVar: 'GITHUB_TOKEN', vaultKey: 'token']
+                        ]
+                    ]]
+                ) {
+                    dir('src') {
+                        bat """
+                            git clone -b %BRANCH_FRONTEND% ^
+                                https://%GITHUB_USER%:%GITHUB_TOKEN%@github.com/nateesoft/food-ordering-system.git .
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─── Step 2: Install Dependencies ─────────────────────────────────────
+        stage('Install') {
+            steps {
+                dir('src') {
+                    bat "npm ci"
+                }
+            }
+        }
+
+        // ─── Step 3: Write Env (ต้องทำก่อน Build เพราะ NEXT_PUBLIC_* ถูก bake ตอน build) ──
+        stage('Write Env') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-system/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'NEXT_PUBLIC_API_URL']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        (
+                            echo NEXT_PUBLIC_API_URL=%NEXT_PUBLIC_API_URL%
+                        ) > src\\.env.production
+                    """
+                }
+            }
+        }
+
+        // ─── Step 4: Build ─────────────────────────────────────────────────────
+        stage('Build') {
+            steps {
+                dir('src') {
+                    bat "npm run build"
+                }
+            }
+        }
+
+        // ─── Step 5: Deploy ────────────────────────────────────────────────────
+        stage('Deploy Frontend') {
+            steps {
+                // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
+                bat """
+                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
+                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
+                    xcopy /E /I /Y src\\.next         "%APP_DIR%\\.next"
+                    xcopy /E /I /Y src\\public        "%APP_DIR%\\public"
+                    copy /Y        src\\package.json       "%APP_DIR%\\package.json"
+                    copy /Y        src\\package-lock.json  "%APP_DIR%\\package-lock.json"
+                    copy /Y        src\\.env.production    "%APP_DIR%\\.env.production"
+                    copy /Y        src\\next.config.*      "%APP_DIR%\\" 2>nul || echo no next.config found
+                """
+                // ติดตั้ง dependencies ที่ปลายทางโดยตรง (เร็วกว่า xcopy node_modules มาก)
+                bat """
+                    cd /d "%APP_DIR%" && npm ci --production
+                """
+
+                // Restart หรือ Start ด้วย PM2
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && (
+                        pm2 restart %APP_NAME%
+                    ) || (
+                        pm2 start "%APP_DIR%\\node_modules\\next\\dist\\bin\\next" ^
+                            --name %APP_NAME% ^
+                            --cwd "%APP_DIR%" ^
+                            --log "%APP_DIR%\\logs\\app.log" ^
+                            -- start
+                    )
+                    pm2 save
+                """
+                echo "Frontend deployed → http://localhost"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment successful → http://localhost"
+        }
+        failure {
+            echo "❌ Pipeline failed — check the stage logs above."
+        }
+        always {
+            cleanWs()
+        }
+    }
+}

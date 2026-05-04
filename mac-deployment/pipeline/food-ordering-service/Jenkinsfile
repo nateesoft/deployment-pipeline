@@ -1,0 +1,145 @@
+pipeline {
+    agent any
+
+    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
+    environment {
+        BRANCH_BACKEND = 'main'
+        APP_DIR        = '/Users/nateelive/Documents/apps/food-ordering-service'
+        APP_NAME       = 'food-ordering-service'
+    }
+
+    stages {
+
+        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/jenkins/github',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'GITHUB_USER',  vaultKey: 'username'],
+                            [envVar: 'GITHUB_TOKEN', vaultKey: 'token']
+                        ]
+                    ]]
+                ) {
+                    dir('src') {
+                        bat """
+                            git clone -b %BRANCH_BACKEND% ^
+                                https://%GITHUB_USER%:%GITHUB_TOKEN%@github.com/nateesoft/food-ordering-service.git .
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─── Step 2: Install Dependencies ─────────────────────────────────────
+        stage('Install') {
+            steps {
+                dir('src') {
+                    bat "npm ci"
+                }
+            }
+        }
+
+        // ─── Step 3: Build ─────────────────────────────────────────────────────
+        // npm run build จะรัน prebuild (prisma generate) โดยอัตโนมัติ
+        stage('Build') {
+            steps {
+                dir('src') {
+                    bat "npm run build"
+                }
+            }
+        }
+
+        // ─── Step 4: Write Env ────────────────────────────────────────────────────
+        // prisma.config.ts ใช้ dotenv/config อ่าน DATABASE_URL จากไฟล์ .env
+        // จึงต้องสร้าง .env ก่อนรัน migrate (ไฟล์ .env อยู่ใน .gitignore)
+        stage('Write Env') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-service/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'DATABASE_URL', vaultKey: 'DATABASE_URL']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        (echo DATABASE_URL=%DATABASE_URL%) > src\\.env
+                    """
+                }
+            }
+        }
+
+        // ─── Step 5: DB Migration ──────────────────────────────────────────────
+        stage('DB Migration') {
+            steps {
+                dir('src') {
+                    bat "npx prisma migrate deploy"
+                }
+            }
+        }
+
+        // ─── Step 6: Deploy ────────────────────────────────────────────────────
+        stage('Deploy Backend') {
+            steps {
+                // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
+                bat """
+                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
+                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
+                    xcopy /E /I /Y src\\dist    "%APP_DIR%\\dist"
+                    xcopy /E /I /Y src\\prisma  "%APP_DIR%\\prisma"
+                    copy /Y src\\prisma.config.ts   "%APP_DIR%\\prisma.config.ts"
+                    copy /Y src\\package.json        "%APP_DIR%\\package.json"
+                    copy /Y src\\package-lock.json   "%APP_DIR%\\package-lock.json"
+                """
+
+                // ติดตั้ง production dependencies ที่ปลายทาง
+                bat """
+                    cd /d "%APP_DIR%" && npm ci --omit=dev
+                """
+
+                // คัดลอก Prisma generated client (สร้างไว้ตอน Build — prisma CLI ไม่มีใน prod deps)
+                bat """
+                    xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
+                """
+
+                // Restart หรือ Start ด้วย PM2
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && (
+                        pm2 restart %APP_NAME%
+                    ) || (
+                        pm2 start "%APP_DIR%\\dist\\main.js" ^
+                            --name %APP_NAME% ^
+                            --cwd  "%APP_DIR%" ^
+                            --log  "%APP_DIR%\\logs\\app.log"
+                    )
+                    pm2 save
+                """
+                echo "Backend deployed → http://localhost/api"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Deployment successful → http://localhost/api"
+        }
+        failure {
+            echo "❌ Pipeline failed — check the stage logs above."
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
