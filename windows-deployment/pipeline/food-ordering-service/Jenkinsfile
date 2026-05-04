@@ -75,14 +75,15 @@ pipeline {
                 """
                 dir("${APP_DIR}") {
                     bat """
-                        echo [npm] Running npm ci in %CD%
-                        npm ci
-                        echo [prisma] Generating Prisma Client
-                        npx prisma generate
-                        echo [npm] Pruning dev dependencies
-                        npm prune --omit=dev
+                        echo [npm] Installing production dependencies in %CD%
+                        npm ci --omit=dev
                     """
                 }
+                bat """
+                    echo [prisma] Copying generated Prisma client from build workspace
+                    robocopy src\\node_modules\\.prisma "%APP_DIR%\\node_modules\\.prisma" /E /MIR /MT:8 /NJH /NJS
+                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
+                """
             }
         }
 
