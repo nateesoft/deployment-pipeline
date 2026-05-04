@@ -1,0 +1,129 @@
+pipeline {
+    agent any
+
+    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
+    environment {
+        BRANCH   = 'main'
+        APP_DIR  = 'D:\\ICS-Projects\\apps\\import-xlsx-tranout'
+        APP_NAME = 'import-xlsx-tranout'
+    }
+
+    stages {
+
+        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        stage('Checkout') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/jenkins/github',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'GITHUB_USER',  vaultKey: 'username'],
+                            [envVar: 'GITHUB_TOKEN', vaultKey: 'token']
+                        ]
+                    ]]
+                ) {
+                    dir('src') {
+                        bat """
+                            git clone -b %BRANCH% ^
+                                https://%GITHUB_USER%:%GITHUB_TOKEN%@github.com/nateesoft/import-xlsx-tranout.git .
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─── Step 2: Install Dependencies ─────────────────────────────────────
+        stage('Install') {
+            steps {
+                dir('src') {
+                    bat "npm ci"
+                }
+            }
+        }
+
+        // ─── Step 3: Write Env (ต้องทำก่อน Build เพราะตัวแปรถูก bake ตอน build) ──
+        stage('Write Env') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: 'http://localhost:8200',
+                        vaultCredentialId: 'vault-token'
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/import-xlsx-tranout/app',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'LOGIN_USERNAME', vaultKey: 'LOGIN_USERNAME'],
+                            [envVar: 'LOGIN_PASSWORD', vaultKey: 'LOGIN_PASSWORD']
+                        ]
+                    ]]
+                ) {
+                    bat """
+                        (
+                            echo LOGIN_USERNAME=%LOGIN_USERNAME%
+                            echo LOGIN_PASSWORD=%LOGIN_PASSWORD%
+                        ) > src\\.env.production
+                    """
+                }
+            }
+        }
+
+        // ─── Step 4: Build (Standalone Mode) ──────────────────────────────────
+        // แทนที่ rm -rf / cp ใน package.json ที่ไม่ทำงานบน Windows
+        stage('Build') {
+            steps {
+                bat "if exist src\\.next rmdir /s /q src\\.next"
+                dir('src') {
+                    bat "npx next build"
+                }
+                bat """
+                    xcopy /E /I /Y src\\.next\\static src\\.next\\standalone\\.next\\static
+                    xcopy /E /I /Y src\\public        src\\.next\\standalone\\public
+                """
+            }
+        }
+
+        // ─── Step 5: Deploy ────────────────────────────────────────────────────
+        stage('Deploy') {
+            steps {
+                bat """
+                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
+                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
+                    robocopy src\\.next\\standalone "%APP_DIR%" /E /MIR /MT:8
+                    if %errorlevel% GEQ 8 exit /b 1
+                    copy /Y src\\.env.production "%APP_DIR%\\.env.production"
+                """
+
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && (
+                        pm2 restart %APP_NAME%
+                    ) || (
+                        pm2 start "%APP_DIR%\\server.js" ^
+                            --name %APP_NAME% ^
+                            --cwd "%APP_DIR%" ^
+                            --log "%APP_DIR%\\logs\\app.log"
+                    )
+                    pm2 save
+                """
+                echo "Deployed → http://localhost"
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "Deployment successful"
+        }
+        failure {
+            echo "Pipeline failed — check the stage logs above."
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
