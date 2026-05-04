@@ -47,6 +47,7 @@ pipeline {
         }
 
         // ─── Step 3: Build ─────────────────────────────────────────────────────
+        // npm run build จะรัน prebuild (prisma generate) โดยอัตโนมัติ
         stage('Build') {
             steps {
                 dir('src') {
@@ -55,125 +56,49 @@ pipeline {
             }
         }
 
-        // ─── Step 4: Deploy ────────────────────────────────────────────────────
+        // ─── Step 4: DB Migration ──────────────────────────────────────────────
+        // ใช้ DATABASE_URL จาก System Environment Variables ที่ตั้งค่าไว้บน Windows Server
+        stage('DB Migration') {
+            steps {
+                dir('src') {
+                    bat "npx prisma migrate deploy"
+                }
+            }
+        }
+
+        // ─── Step 5: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
+                // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
                 bat """
                     if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
                     if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
-
-                    robocopy src\\dist         "%APP_DIR%\\dist"         /E /MIR /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
-                    robocopy src\\prisma       "%APP_DIR%\\prisma"       /E /MIR /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
-                    robocopy src\\node_modules "%APP_DIR%\\node_modules" /E /MIR /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
-
-                    copy /Y src\\package.json      "%APP_DIR%\\package.json"      || exit /b 1
-                    copy /Y src\\package-lock.json "%APP_DIR%\\package-lock.json" || exit /b 1
-
-                    echo [pm2] Stopping app to release native module locks
-                    pm2 stop %APP_NAME% >nul 2>&1
+                    xcopy /E /I /Y src\\dist    "%APP_DIR%\\dist"
+                    xcopy /E /I /Y src\\prisma  "%APP_DIR%\\prisma"
+                    copy /Y src\\prisma.config.ts   "%APP_DIR%\\prisma.config.ts"
+                    copy /Y src\\package.json        "%APP_DIR%\\package.json"
+                    copy /Y src\\package-lock.json   "%APP_DIR%\\package-lock.json"
                 """
-                dir("${APP_DIR}") {
-                    bat """
-                        echo [prisma] Generating Prisma Client
-                        npx prisma generate
-                        echo [npm] Pruning dev dependencies
-                        npm prune --omit=dev
-                    """
-                }
+
+                // ติดตั้ง production dependencies ที่ปลายทาง
                 bat """
-                    echo [prisma] Copying generated Prisma client from build workspace
-                    robocopy src\\node_modules\\.prisma "%APP_DIR%\\node_modules\\.prisma" /E /MIR /MT:8 /NJH /NJS
-                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
+                    cd /d "%APP_DIR%" && npm ci --omit=dev
                 """
-            }
-        }
 
-        // ─── Step 5: Write .env from Vault ────────────────────────────────────────
-        stage('Write Env') {
-            steps {
-                withVault(
-                    configuration: [
-                        vaultUrl: 'http://localhost:8200',
-                        vaultCredentialId: 'vault-token'
-                    ],
-                    vaultSecrets: [[
-                        path: 'secret/food-ordering-service/app',
-                        engineVersion: 2,
-                        secretValues: [
-                            [envVar: 'DATABASE_URL',        vaultKey: 'DATABASE_URL'],
-                            [envVar: 'JWT_SECRET',          vaultKey: 'JWT_SECRET'],
-                            [envVar: 'JWT_EXPIRES_IN',      vaultKey: 'JWT_EXPIRES_IN'],
-                            [envVar: 'PORT',                vaultKey: 'PORT'],
-                            [envVar: 'RABBITMQ_URL',        vaultKey: 'RABBITMQ_URL'],
-                            [envVar: 'RABBITMQ_EXCHANGE',   vaultKey: 'RABBITMQ_EXCHANGE'],
-                            [envVar: 'RABBITMQ_PREFETCH',   vaultKey: 'RABBITMQ_PREFETCH'],
-                            [envVar: 'LOG_LEVEL',           vaultKey: 'LOG_LEVEL'],
-                            [envVar: 'MINIO_ENDPOINT',      vaultKey: 'MINIO_ENDPOINT'],
-                            [envVar: 'MINIO_ROOT_USER',     vaultKey: 'MINIO_ROOT_USER'],
-                            [envVar: 'MINIO_ROOT_PASSWORD', vaultKey: 'MINIO_ROOT_PASSWORD'],
-                            [envVar: 'MINIO_BUCKET',        vaultKey: 'MINIO_BUCKET']
-                        ]
-                    ]]
-                ) {
-                    bat """
-                        (
-                            echo DATABASE_URL=%DATABASE_URL%
-                            echo JWT_SECRET=%JWT_SECRET%
-                            echo JWT_EXPIRES_IN=%JWT_EXPIRES_IN%
-                            echo PORT=%PORT%
-                            echo RABBITMQ_URL=%RABBITMQ_URL%
-                            echo RABBITMQ_EXCHANGE=%RABBITMQ_EXCHANGE%
-                            echo RABBITMQ_PREFETCH=%RABBITMQ_PREFETCH%
-                            echo LOG_LEVEL=%LOG_LEVEL%
-                            echo MINIO_ENDPOINT=%MINIO_ENDPOINT%
-                            echo MINIO_ROOT_USER=%MINIO_ROOT_USER%
-                            echo MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%
-                            echo MINIO_BUCKET=%MINIO_BUCKET%
-                        ) > "%APP_DIR%\\.env"
-                    """
-                }
-            }
-        }
+                // คัดลอก Prisma generated client (สร้างไว้ตอน Build — prisma CLI ไม่มีใน prod deps)
+                bat """
+                    xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
+                """
 
-        // ─── Step 6: Migrate Database ──────────────────────────────────────────
-        stage('Migrate Database') {
-            steps {
-                withVault(
-                    configuration: [
-                        vaultUrl: 'http://localhost:8200',
-                        vaultCredentialId: 'vault-token'
-                    ],
-                    vaultSecrets: [[
-                        path: 'secret/food-ordering-service/app',
-                        engineVersion: 2,
-                        secretValues: [
-                            [envVar: 'DATABASE_URL', vaultKey: 'DATABASE_URL']
-                        ]
-                    ]]
-                ) {
-                    // รันจาก src เพราะ prisma.config.ts และ node_modules อยู่ที่นี่
-                    dir('src') {
-                        bat "npx prisma migrate deploy"
-                    }
-                }
-            }
-        }
-
-        // ─── Step 7: Start / Restart App ───────────────────────────────────────
-        stage('Start App') {
-            steps {
+                // Restart หรือ Start ด้วย PM2
                 bat """
                     pm2 describe %APP_NAME% >nul 2>&1 && (
                         pm2 restart %APP_NAME%
                     ) || (
                         pm2 start "%APP_DIR%\\dist\\main.js" ^
                             --name %APP_NAME% ^
-                            --cwd "%APP_DIR%" ^
-                            --log "%APP_DIR%\\logs\\app.log" ^
-                            --env production
+                            --cwd  "%APP_DIR%" ^
+                            --log  "%APP_DIR%\\logs\\app.log"
                     )
                     pm2 save
                 """
@@ -190,7 +115,7 @@ pipeline {
             echo "❌ Pipeline failed — check the stage logs above."
         }
         always {
-            deleteDir()
+            cleanWs()
         }
     }
 }
