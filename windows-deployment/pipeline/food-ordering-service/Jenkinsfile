@@ -75,9 +75,10 @@ pipeline {
                     echo [npm] Running npm ci
                     cd /d "%APP_DIR%"
                     npm ci
-                    npm prune --omit=dev
                     echo [prisma] Generating Prisma Client
                     npx prisma generate
+                    echo [npm] Pruning dev dependencies
+                    npm prune --omit=dev
                 """
             }
         }
