@@ -83,6 +83,11 @@ pipeline {
                         npm prune --omit=dev
                     """
                 }
+                bat """
+                    echo [prisma] Copying generated Prisma client from build workspace
+                    robocopy src\\node_modules\\.prisma "%APP_DIR%\\node_modules\\.prisma" /E /MIR /MT:8 /NJH /NJS
+                    if %ERRORLEVEL% GTR 7 exit /b %ERRORLEVEL%
+                """
             }
         }
 
