@@ -72,14 +72,17 @@ pipeline {
 
                     echo [pm2] Stopping app to release native module locks
                     pm2 stop %APP_NAME% >nul 2>&1
-                    echo [npm] Running npm ci
-                    cd /d "%APP_DIR%"
-                    npm ci
-                    echo [prisma] Generating Prisma Client
-                    npx prisma generate
-                    echo [npm] Pruning dev dependencies
-                    npm prune --omit=dev
                 """
+                dir("${APP_DIR}") {
+                    bat """
+                        echo [npm] Running npm ci in %CD%
+                        npm ci
+                        echo [prisma] Generating Prisma Client
+                        npx prisma generate
+                        echo [npm] Pruning dev dependencies
+                        npm prune --omit=dev
+                    """
+                }
             }
         }
 
