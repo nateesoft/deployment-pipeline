@@ -6,6 +6,8 @@ pipeline {
         BRANCH_BACKEND = 'main'
         APP_DIR        = '/Users/nateelive/Documents/apps/food-ordering-service'
         APP_NAME       = 'food-ordering-service'
+        VAULT_URL      = 'http://localhost:8200'
+        VAULT_CRED_ID  = 'vault-token'
     }
 
     stages {
@@ -15,8 +17,8 @@ pipeline {
             steps {
                 withVault(
                     configuration: [
-                        vaultUrl: 'http://localhost:8200',
-                        vaultCredentialId: 'vault-token'
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
                         path: 'secret/jenkins/github',
@@ -63,19 +65,43 @@ pipeline {
             steps {
                 withVault(
                     configuration: [
-                        vaultUrl: 'http://localhost:8200',
-                        vaultCredentialId: 'vault-token'
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-service/app',
+                        path: 'secret/food-ordering-service/env',
                         engineVersion: 2,
                         secretValues: [
-                            [envVar: 'DATABASE_URL', vaultKey: 'DATABASE_URL']
+                            [envVar: 'DATABASE_URL',        vaultKey: 'database_url'],
+                            [envVar: 'JWT_SECRET',          vaultKey: 'jwt_secret'],
+                            [envVar: 'JWT_EXPIRES_IN',      vaultKey: 'jwt_expires_in'],
+                            [envVar: 'PORT',                vaultKey: 'port'],
+                            [envVar: 'RABBITMQ_URL',        vaultKey: 'rabbitmq_url'],
+                            [envVar: 'RABBITMQ_EXCHANGE',   vaultKey: 'rabbitmq_exchange'],
+                            [envVar: 'RABBITMQ_PREFETCH',   vaultKey: 'rabbitmq_prefetch'],
+                            [envVar: 'LOG_LEVEL',           vaultKey: 'log_level'],
+                            [envVar: 'MINIO_ENDPOINT',      vaultKey: 'minio_endpoint'],
+                            [envVar: 'MINIO_ROOT_USER',     vaultKey: 'minio_root_user'],
+                            [envVar: 'MINIO_ROOT_PASSWORD', vaultKey: 'minio_root_password'],
+                            [envVar: 'MINIO_BUCKET',        vaultKey: 'minio_bucket']
                         ]
                     ]]
                 ) {
                     bat """
-                        (echo DATABASE_URL=%DATABASE_URL%) > src\\.env
+                        (
+                            echo DATABASE_URL=%DATABASE_URL%
+                            echo JWT_SECRET=%JWT_SECRET%
+                            echo JWT_EXPIRES_IN=%JWT_EXPIRES_IN%
+                            echo PORT=%PORT%
+                            echo RABBITMQ_URL=%RABBITMQ_URL%
+                            echo RABBITMQ_EXCHANGE=%RABBITMQ_EXCHANGE%
+                            echo RABBITMQ_PREFETCH=%RABBITMQ_PREFETCH%
+                            echo LOG_LEVEL=%LOG_LEVEL%
+                            echo MINIO_ENDPOINT=%MINIO_ENDPOINT%
+                            echo MINIO_ROOT_USER=%MINIO_ROOT_USER%
+                            echo MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%
+                            echo MINIO_BUCKET=%MINIO_BUCKET%
+                        ) > src\\.env
                     """
                 }
             }
@@ -102,6 +128,7 @@ pipeline {
                     copy /Y src\\prisma.config.ts   "%APP_DIR%\\prisma.config.ts"
                     copy /Y src\\package.json        "%APP_DIR%\\package.json"
                     copy /Y src\\package-lock.json   "%APP_DIR%\\package-lock.json"
+                    copy /Y src\\.env                "%APP_DIR%\\.env"
                 """
 
                 // ติดตั้ง production dependencies ที่ปลายทาง

@@ -6,6 +6,8 @@ pipeline {
         BRANCH_FRONTEND = 'main'
         APP_DIR         = '/Users/nateelive/Documents/apps/food-ordering-system'
         APP_NAME        = 'food-ordering-system'
+        VAULT_URL       = 'http://localhost:8200'
+        VAULT_CRED_ID   = 'vault-token'
     }
 
     stages {
@@ -15,8 +17,8 @@ pipeline {
             steps {
                 withVault(
                     configuration: [
-                        vaultUrl: 'http://localhost:8200',
-                        vaultCredentialId: 'vault-token'
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
                         path: 'secret/jenkins/github',
@@ -51,19 +53,21 @@ pipeline {
             steps {
                 withVault(
                     configuration: [
-                        vaultUrl: 'http://localhost:8200',
-                        vaultCredentialId: 'vault-token'
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-system/app',
+                        path: 'secret/food-ordering-system/env',
                         engineVersion: 2,
                         secretValues: [
-                            [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'NEXT_PUBLIC_API_URL']
+                            [envVar: 'PORT',               vaultKey: 'port'],
+                            [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'next_public_api_url']
                         ]
                     ]]
                 ) {
                     bat """
                         (
+                            echo PORT=%PORT%
                             echo NEXT_PUBLIC_API_URL=%NEXT_PUBLIC_API_URL%
                         ) > src\\.env.production
                     """
