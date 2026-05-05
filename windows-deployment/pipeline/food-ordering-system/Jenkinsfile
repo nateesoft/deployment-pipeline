@@ -5,7 +5,7 @@ pipeline {
         BRANCH_FRONTEND = 'main'
         APP_DIR         = 'D:\\ICS-Projects\\apps\\food-ordering-system'
         APP_NAME        = 'food-ordering-system'
-        VAULT_URL       = 'http://vault:8200'
+        VAULT_URL       = 'http://localhost:8200'
         VAULT_CRED_ID   = 'vault-token'
     }
 
