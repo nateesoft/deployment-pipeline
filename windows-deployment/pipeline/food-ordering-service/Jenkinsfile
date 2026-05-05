@@ -118,6 +118,12 @@ pipeline {
         // ─── Step 6: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
+                // Stop PM2 ก่อน เพื่อปลด lock บน native .node files (เช่น bcrypt.node)
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && pm2 delete %APP_NAME%
+                    exit /b 0
+                """
+
                 // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
                 bat """
                     if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
@@ -130,7 +136,7 @@ pipeline {
                     copy /Y src\\.env                "%APP_DIR%\\.env"
                 """
 
-                // ติดตั้ง production dependencies ที่ปลายทาง
+                // ติดตั้ง production dependencies ที่ปลายทาง (PM2 หยุดแล้ว ไม่มี file lock)
                 bat """
                     cd /d "%APP_DIR%" && npm ci --omit=dev
                 """
@@ -140,9 +146,8 @@ pipeline {
                     xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
                 """
 
-                // Stop process เดิมก่อน (ถ้ามี) แล้ว start ใหม่ เพื่อให้อ่าน .env ใหม่ทุกครั้ง
+                // Start ด้วย PM2 (fresh start เพื่อให้อ่าน .env ใหม่)
                 bat """
-                    pm2 describe %APP_NAME% >nul 2>&1 && pm2 delete %APP_NAME%
                     pm2 start "%APP_DIR%\\dist\\main.js" ^
                         --name %APP_NAME% ^
                         --cwd  "%APP_DIR%" ^
