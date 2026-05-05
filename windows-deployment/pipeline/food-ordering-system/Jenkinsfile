@@ -93,6 +93,8 @@ pipeline {
                     if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
                     xcopy /E /I /Y src\\.next         "%APP_DIR%\\.next"
                     xcopy /E /I /Y src\\public        "%APP_DIR%\\public"
+                    if exist src\\app    xcopy /E /I /Y src\\app    "%APP_DIR%\\app"
+                    if exist src\\pages  xcopy /E /I /Y src\\pages  "%APP_DIR%\\pages"
                     copy /Y        src\\package.json       "%APP_DIR%\\package.json"
                     copy /Y        src\\package-lock.json  "%APP_DIR%\\package-lock.json"
                     copy /Y        src\\.env.production    "%APP_DIR%\\.env.production"
