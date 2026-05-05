@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    tools {
+        nodejs 'node-22'
+    }
+
     environment {
         BRANCH_BACKEND = 'main'
         APP_DIR        = 'D:\\ICS-Projects\\apps\\food-ordering-service'
