@@ -102,7 +102,7 @@ pipeline {
                 """
                 // ติดตั้ง dependencies ที่ปลายทางโดยตรง (เร็วกว่า xcopy node_modules มาก)
                 bat """
-                    cd /d "%APP_DIR%" && npm ci --production
+                    cd /d "%APP_DIR%" && npm ci
                 """
 
                 // Delete แล้ว Start ใหม่เสมอ เพื่อให้ PORT จาก .env.production ถูก apply ทุก deploy
