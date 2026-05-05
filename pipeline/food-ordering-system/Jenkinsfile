@@ -1,21 +1,22 @@
 pipeline {
     agent any
 
-    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
     environment {
         BRANCH_FRONTEND = 'main'
         IMAGE_TAG       = "${BUILD_NUMBER}"
+        VAULT_URL       = 'http://vault:8200'
+        VAULT_CRED_ID   = 'vault-token'
     }
 
     stages {
 
-        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        // ─── Step 1: Checkout ──────────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 withVault(
                     configuration: [
-                        vaultUrl: 'http://vault:8200',
-                        vaultCredentialId: 'vault-token'
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
                         path: 'secret/jenkins/github',
@@ -36,36 +37,68 @@ pipeline {
             }
         }
 
-        // ─── Step 2: Build ─────────────────────────────────────────────────────
+        // ─── Step 2: Build (NEXT_PUBLIC_* ต้อง bake ตอน build) ───────────────
         stage('Build') {
             steps {
-                sh """
-                    docker compose -f pipeline/food-ordering-system/docker-compose.yml \
-                        build \
-                        --build-arg IMAGE_TAG=${IMAGE_TAG}
-                """
+                withVault(
+                    configuration: [
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-system/env',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'next_public_api_url']
+                        ]
+                    ]]
+                ) {
+                    sh """
+                        docker build \
+                            --build-arg NEXT_PUBLIC_API_URL="${NEXT_PUBLIC_API_URL}" \
+                            -t food-ordering-system:${IMAGE_TAG} \
+                            -t food-ordering-system:latest \
+                            src/
+                    """
+                }
             }
         }
 
         // ─── Step 3: Deploy ────────────────────────────────────────────────────
-        stage('Deploy Frontend') {
+        stage('Deploy') {
             steps {
-                sh """
-                    IMAGE_TAG=${IMAGE_TAG} \
-                    docker compose -f pipeline/food-ordering-system/docker-compose.yml \
-                        up -d --force-recreate
-                """
-                echo "Frontend deployed → http://localhost"
+                withVault(
+                    configuration: [
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-system/env',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'PORT',               vaultKey: 'port'],
+                            [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'next_public_api_url']
+                        ]
+                    ]]
+                ) {
+                    sh """
+                        IMAGE_TAG=${IMAGE_TAG} \
+                        PORT=${PORT} \
+                        NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL} \
+                        docker compose -f pipeline/food-ordering-system/docker-compose.yml \
+                            up -d --force-recreate
+                    """
+                }
             }
         }
     }
 
     post {
         success {
-            echo "✅ Deployment successful → http://localhost"
+            echo "✅ Deploy สำเร็จ → http://localhost:${PORT}"
         }
         failure {
-            echo "❌ Pipeline failed — check the stage logs above."
+            echo "❌ Pipeline ล้มเหลว — ดู log ของแต่ละ stage"
         }
         always {
             cleanWs()

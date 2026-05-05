@@ -1,21 +1,22 @@
 pipeline {
     agent any
 
-    // ─── ปรับค่าตรงนี้ตาม repo จริง ─────────────────────────────────────────
     environment {
         BRANCH_BACKEND = 'main'
         IMAGE_TAG      = "${BUILD_NUMBER}"
+        VAULT_URL      = 'http://vault:8200'
+        VAULT_CRED_ID  = 'vault-token'
     }
 
     stages {
 
-        // ─── Step 1: ดึงข้อมูลจาก GitHub ──────────────────────────────────────
+        // ─── Step 1: Checkout ──────────────────────────────────────────────────
         stage('Checkout') {
             steps {
                 withVault(
                     configuration: [
-                        vaultUrl: 'http://vault:8200',
-                        vaultCredentialId: 'vault-token'
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
                         path: 'secret/jenkins/github',
@@ -47,14 +48,68 @@ pipeline {
             }
         }
 
-        // ─── Step 3: Deploy ────────────────────────────────────────────────────
+        // ─── Step 3: DB Migration ──────────────────────────────────────────────
+        stage('DB Migration') {
+            steps {
+                withVault(
+                    configuration: [
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-service/env',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'DATABASE_URL', vaultKey: 'database_url']
+                        ]
+                    ]]
+                ) {
+                    dir('src') {
+                        sh """
+                            DATABASE_URL=${DATABASE_URL} npx prisma migrate deploy
+                        """
+                    }
+                }
+            }
+        }
+
+        // ─── Step 4: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
-                sh """
-                    IMAGE_TAG=${IMAGE_TAG} \
-                    docker compose -f pipeline/food-ordering-service/docker-compose.yml \
-                        up -d --force-recreate
-                """
+                withVault(
+                    configuration: [
+                        vaultUrl: "${VAULT_URL}",
+                        vaultCredentialId: "${VAULT_CRED_ID}"
+                    ],
+                    vaultSecrets: [[
+                        path: 'secret/food-ordering-service/env',
+                        engineVersion: 2,
+                        secretValues: [
+                            [envVar: 'DATABASE_URL',      vaultKey: 'database_url'],
+                            [envVar: 'JWT_SECRET',        vaultKey: 'jwt_secret'],
+                            [envVar: 'RABBITMQ_URL',      vaultKey: 'rabbitmq_url'],
+                            [envVar: 'MINIO_ENDPOINT',    vaultKey: 'minio_endpoint'],
+                            [envVar: 'MINIO_ROOT_USER',   vaultKey: 'minio_root_user'],
+                            [envVar: 'MINIO_ROOT_PASSWORD', vaultKey: 'minio_root_password'],
+                            [envVar: 'MINIO_BUCKET',      vaultKey: 'minio_bucket'],
+                            [envVar: 'PORT',              vaultKey: 'port']
+                        ]
+                    ]]
+                ) {
+                    sh """
+                        IMAGE_TAG=${IMAGE_TAG} \
+                        DATABASE_URL=${DATABASE_URL} \
+                        JWT_SECRET=${JWT_SECRET} \
+                        RABBITMQ_URL=${RABBITMQ_URL} \
+                        MINIO_ENDPOINT=${MINIO_ENDPOINT} \
+                        MINIO_ROOT_USER=${MINIO_ROOT_USER} \
+                        MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD} \
+                        MINIO_BUCKET=${MINIO_BUCKET} \
+                        PORT=${PORT} \
+                        docker compose -f pipeline/food-ordering-service/docker-compose.yml \
+                            up -d --force-recreate
+                    """
+                }
                 echo "Backend deployed → http://localhost/api"
             }
         }
@@ -68,7 +123,7 @@ pipeline {
             echo "❌ Pipeline failed — check the stage logs above."
         }
         always {
-            deleteDir()
+            cleanWs()
         }
     }
 }
