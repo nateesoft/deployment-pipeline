@@ -122,8 +122,9 @@ pipeline {
         stage('Deploy Backend') {
             steps {
                 // Stop PM2 ก่อน เพื่อปลด lock บน native .node files (เช่น bcrypt.node)
+                // pm2 delete คืน non-zero ถ้า process ไม่มี — exit /b 0 บังคับ success เสมอ
                 bat """
-                    pm2 describe %APP_NAME% >nul 2>&1 && pm2 delete %APP_NAME%
+                    pm2 delete %APP_NAME% >nul 2>nul
                     exit /b 0
                 """
 
