@@ -30,9 +30,9 @@ pipeline {
                     ]]
                 ) {
                     dir('src') {
-                        bat """
-                            git clone -b %BRANCH_BACKEND% ^
-                                https://%GITHUB_USER%:%GITHUB_TOKEN%@github.com/nateesoft/food-ordering-service.git .
+                        sh """
+                            git clone -b ${BRANCH_BACKEND} \\
+                                https://\${GITHUB_USER}:\${GITHUB_TOKEN}@github.com/nateesoft/food-ordering-service.git .
                         """
                     }
                 }
@@ -43,7 +43,7 @@ pipeline {
         stage('Install') {
             steps {
                 dir('src') {
-                    bat "npm ci"
+                    sh "npm ci"
                 }
             }
         }
@@ -53,7 +53,7 @@ pipeline {
         stage('Build') {
             steps {
                 dir('src') {
-                    bat "npm run build"
+                    sh "npm run build"
                 }
             }
         }
@@ -69,7 +69,7 @@ pipeline {
                         vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-service/app',
+                        path: 'secret/food-ordering-service/env',
                         engineVersion: 2,
                         secretValues: [
                             [envVar: 'DATABASE_URL',        vaultKey: 'database_url'],
@@ -87,21 +87,21 @@ pipeline {
                         ]
                     ]]
                 ) {
-                    bat """
-                        (
-                            echo DATABASE_URL=%DATABASE_URL%
-                            echo JWT_SECRET=%JWT_SECRET%
-                            echo JWT_EXPIRES_IN=%JWT_EXPIRES_IN%
-                            echo PORT=%PORT%
-                            echo RABBITMQ_URL=%RABBITMQ_URL%
-                            echo RABBITMQ_EXCHANGE=%RABBITMQ_EXCHANGE%
-                            echo RABBITMQ_PREFETCH=%RABBITMQ_PREFETCH%
-                            echo LOG_LEVEL=%LOG_LEVEL%
-                            echo MINIO_ENDPOINT=%MINIO_ENDPOINT%
-                            echo MINIO_ROOT_USER=%MINIO_ROOT_USER%
-                            echo MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%
-                            echo MINIO_BUCKET=%MINIO_BUCKET%
-                        ) > src\\.env
+                    sh """
+                        cat > src/.env <<EOF
+DATABASE_URL=\${DATABASE_URL}
+JWT_SECRET=\${JWT_SECRET}
+JWT_EXPIRES_IN=\${JWT_EXPIRES_IN}
+PORT=\${PORT}
+RABBITMQ_URL=\${RABBITMQ_URL}
+RABBITMQ_EXCHANGE=\${RABBITMQ_EXCHANGE}
+RABBITMQ_PREFETCH=\${RABBITMQ_PREFETCH}
+LOG_LEVEL=\${LOG_LEVEL}
+MINIO_ENDPOINT=\${MINIO_ENDPOINT}
+MINIO_ROOT_USER=\${MINIO_ROOT_USER}
+MINIO_ROOT_PASSWORD=\${MINIO_ROOT_PASSWORD}
+MINIO_BUCKET=\${MINIO_BUCKET}
+EOF
                     """
                 }
             }
@@ -111,7 +111,7 @@ pipeline {
         stage('DB Migration') {
             steps {
                 dir('src') {
-                    bat "npx prisma migrate deploy"
+                    sh "npx prisma migrate deploy"
                 }
             }
         }
@@ -120,37 +120,32 @@ pipeline {
         stage('Deploy Backend') {
             steps {
                 // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
-                bat """
-                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
-                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
-                    xcopy /E /I /Y src\\dist    "%APP_DIR%\\dist"
-                    xcopy /E /I /Y src\\prisma  "%APP_DIR%\\prisma"
-                    copy /Y src\\prisma.config.ts   "%APP_DIR%\\prisma.config.ts"
-                    copy /Y src\\package.json        "%APP_DIR%\\package.json"
-                    copy /Y src\\package-lock.json   "%APP_DIR%\\package-lock.json"
-                    copy /Y src\\.env                "%APP_DIR%\\.env"
+                sh """
+                    mkdir -p "${APP_DIR}/logs"
+                    cp -r src/dist    "${APP_DIR}/dist"
+                    cp -r src/prisma  "${APP_DIR}/prisma"
+                    cp src/prisma.config.ts   "${APP_DIR}/prisma.config.ts"
+                    cp src/package.json       "${APP_DIR}/package.json"
+                    cp src/package-lock.json  "${APP_DIR}/package-lock.json"
+                    cp src/.env               "${APP_DIR}/.env"
                 """
 
                 // ติดตั้ง production dependencies ที่ปลายทาง
-                bat """
-                    cd /d "%APP_DIR%" && npm ci --omit=dev
-                """
+                sh "cd '${APP_DIR}' && npm ci --omit=dev"
 
                 // คัดลอก Prisma generated client (สร้างไว้ตอน Build — prisma CLI ไม่มีใน prod deps)
-                bat """
-                    xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
-                """
+                sh "cp -r src/node_modules/.prisma '${APP_DIR}/node_modules/.prisma'"
 
                 // Restart หรือ Start ด้วย PM2
-                bat """
-                    pm2 describe %APP_NAME% >nul 2>&1 && (
-                        pm2 restart %APP_NAME%
-                    ) || (
-                        pm2 start "%APP_DIR%\\dist\\main.js" ^
-                            --name %APP_NAME% ^
-                            --cwd  "%APP_DIR%" ^
-                            --log  "%APP_DIR%\\logs\\app.log"
-                    )
+                sh """
+                    if pm2 describe ${APP_NAME} > /dev/null 2>&1; then
+                        pm2 restart ${APP_NAME}
+                    else
+                        pm2 start "${APP_DIR}/dist/main.js" \\
+                            --name ${APP_NAME} \\
+                            --cwd  "${APP_DIR}" \\
+                            --log  "${APP_DIR}/logs/app.log"
+                    fi
                     pm2 save
                 """
                 echo "Backend deployed → http://localhost/api"
