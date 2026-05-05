@@ -31,14 +31,14 @@ windows-deployment/
   9001  → MinIO Console UI
   9200  → Elasticsearch API
   5601  → Kibana UI
-  3001  → food-ordering-service (NestJS)
+  5555  → food-ordering-service (NestJS)
   3000  → food-ordering-system (Next.js)
 
 ── Traffic Flow ───────────────────────────────────────────────
   Client
     └── http://<server-ip>          (nginx:80)
           ├── /        → localhost:3000  (Next.js)
-          └── /api/    → localhost:3001 (NestJS)
+          └── /api/    → localhost:5555 (NestJS)
 
 ================================================================
   ขั้นตอนที่ 0 — ติดตั้ง Chocolatey (Package Manager)
@@ -397,7 +397,7 @@ ui       = true
     default_type  application/octet-stream;
   
     upstream frontend { server 127.0.0.1:3000; }
-    upstream backend  { server 127.0.0.1:3001; }
+    upstream backend  { server 127.0.0.1:5555; }
   
     server {
       listen 80;
@@ -497,7 +497,7 @@ ui       = true
   JWT_EXPIRES_IN = 7d
 
   # Server
-  PORT          = 3001
+  PORT          = 5555
 
   # Logging
   LOG_LEVEL     = info   (debug | info | warn | error)

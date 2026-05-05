@@ -1,7 +1,7 @@
 version: '3.8'
 
 # food-ordering-system — Next.js Frontend
-# Port: ดึงจาก Vault → secret/food-ordering-system/env
+# Port: ดึงจาก Vault → secret/food-ordering-system/app
 # Usage: IMAGE_TAG=x PORT=3333 NEXT_PUBLIC_API_URL=... docker compose up -d
 
 services:

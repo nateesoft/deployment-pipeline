@@ -57,7 +57,7 @@ pipeline {
                         vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-system/env',
+                        path: 'secret/food-ordering-system/app',
                         engineVersion: 2,
                         secretValues: [
                             [envVar: 'PORT',               vaultKey: 'port'],

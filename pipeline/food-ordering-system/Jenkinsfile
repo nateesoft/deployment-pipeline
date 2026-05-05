@@ -46,7 +46,7 @@ pipeline {
                         vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-system/env',
+                        path: 'secret/food-ordering-system/app',
                         engineVersion: 2,
                         secretValues: [
                             [envVar: 'NEXT_PUBLIC_API_URL', vaultKey: 'next_public_api_url']
@@ -73,7 +73,7 @@ pipeline {
                         vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-system/env',
+                        path: 'secret/food-ordering-system/app',
                         engineVersion: 2,
                         secretValues: [
                             [envVar: 'PORT',               vaultKey: 'port'],

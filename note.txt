@@ -35,7 +35,7 @@ deployment-pipeline/
   Client
     └── http://localhost          (nginx:80)
           ├── /        → food-ordering-system:3000  (Next.js  — PM2 on host)
-          └── /api/    → food-ordering-service:3001 (NestJS   — PM2 on host)
+          └── /api/    → food-ordering-service:5555 (NestJS   — PM2 on host)
 
 ── App Layer — PM2 Processes (Windows Host) ───────────────────
   id │ name                   │ entry point
@@ -297,7 +297,7 @@ deployment-pipeline/
   JWT_EXPIRES_IN = 7d
 
   # Server
-  PORT          = 3001
+  PORT          = 5555
 
   # Logging
   LOG_LEVEL     = info   (debug | info | warn | error)
