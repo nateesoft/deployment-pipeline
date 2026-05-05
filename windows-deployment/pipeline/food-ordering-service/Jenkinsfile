@@ -68,7 +68,7 @@ pipeline {
                         vaultCredentialId: "${VAULT_CRED_ID}"
                     ],
                     vaultSecrets: [[
-                        path: 'secret/food-ordering-service/env',
+                        path: 'secret/food-ordering-service/app',
                         engineVersion: 2,
                         secretValues: [
                             [envVar: 'DATABASE_URL',        vaultKey: 'database_url'],
