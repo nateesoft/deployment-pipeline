@@ -77,8 +77,9 @@ pipeline {
         // ─── Step 4: Build ─────────────────────────────────────────────────────
         stage('Build') {
             steps {
+                bat "if exist src\\.next rmdir /s /q src\\.next"
                 dir('src') {
-                    bat "npm run build"
+                    bat "npx next build"
                 }
             }
         }
