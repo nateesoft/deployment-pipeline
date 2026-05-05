@@ -85,24 +85,20 @@ pipeline {
         }
 
         // ─── Step 5: Deploy ────────────────────────────────────────────────────
+        // standalone output มี node_modules ครบในตัว ไม่ต้อง npm ci ที่ปลายทาง
         stage('Deploy Frontend') {
             steps {
-                // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
+                // robocopy exit code 0-8 = success, 9+ = error
                 bat """
                     if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
                     if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
-                    xcopy /E /I /Y src\\.next         "%APP_DIR%\\.next"
-                    xcopy /E /I /Y src\\public        "%APP_DIR%\\public"
-                    if exist src\\app    xcopy /E /I /Y src\\app    "%APP_DIR%\\app"
-                    if exist src\\pages  xcopy /E /I /Y src\\pages  "%APP_DIR%\\pages"
-                    copy /Y        src\\package.json       "%APP_DIR%\\package.json"
-                    copy /Y        src\\package-lock.json  "%APP_DIR%\\package-lock.json"
-                    copy /Y        src\\.env.production    "%APP_DIR%\\.env.production"
-                    copy /Y        src\\next.config.*      "%APP_DIR%\\" 2>nul || echo no next.config found
-                """
-                // ติดตั้ง dependencies ที่ปลายทางโดยตรง (เร็วกว่า xcopy node_modules มาก)
-                bat """
-                    cd /d "%APP_DIR%" && npm ci
+                    robocopy src\\.next\\standalone  "%APP_DIR%"             /E /NP /NFL /NDL
+                    if %ERRORLEVEL% GEQ 9 exit /B %ERRORLEVEL%
+                    robocopy src\\.next\\static      "%APP_DIR%\\.next\\static" /E /NP /NFL /NDL
+                    if %ERRORLEVEL% GEQ 9 exit /B %ERRORLEVEL%
+                    robocopy src\\public             "%APP_DIR%\\public"     /E /NP /NFL /NDL
+                    if %ERRORLEVEL% GEQ 9 exit /B %ERRORLEVEL%
+                    copy /Y src\\.env.production     "%APP_DIR%\\.env.production"
                 """
 
                 // Delete แล้ว Start ใหม่เสมอ เพื่อให้ PORT จาก .env.production ถูก apply ทุก deploy
@@ -111,7 +107,7 @@ pipeline {
                         Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', ''
                     pm2 delete \$env:APP_NAME 2>&1 | Out-Null
                     \$env:PORT = \$port
-                    pm2 start "\$env:APP_DIR\\node_modules\\next\\dist\\bin\\next" --name \$env:APP_NAME --cwd "\$env:APP_DIR" --log "\$env:APP_DIR\\logs\\app.log" -- start
+                    pm2 start "\$env:APP_DIR\\server.js" --name \$env:APP_NAME --cwd "\$env:APP_DIR" --log "\$env:APP_DIR\\logs\\app.log"
                     pm2 save
                 """
                 echo "Frontend deployed → http://localhost"
