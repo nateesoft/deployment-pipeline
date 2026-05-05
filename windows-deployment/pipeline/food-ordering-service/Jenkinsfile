@@ -149,12 +149,15 @@ pipeline {
                     xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
                 """
 
-                // Start ด้วย PM2 (fresh start เพื่อให้อ่าน .env ใหม่)
-                bat """
-                    pm2 start "%APP_DIR%\\dist\\main.js" ^
-                        --name %APP_NAME% ^
-                        --cwd  "%APP_DIR%" ^
-                        --log  "%APP_DIR%\\logs\\app.log"
+                // Start ด้วย PM2 — อ่าน PORT จาก .env ที่ copy ไว้แล้ว แล้ว pass ให้ process โดยตรง
+                powershell """
+                    \$port = (Get-Content "\$env:APP_DIR\\.env" |
+                        Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', ''
+                    \$env:PORT = \$port
+                    pm2 start "\$env:APP_DIR\\dist\\main.js" ``
+                        --name \$env:APP_NAME ``
+                        --cwd  "\$env:APP_DIR" ``
+                        --log  "\$env:APP_DIR\\logs\\app.log"
                     pm2 save
                 """
                 echo "Backend deployed → http://localhost/api"
