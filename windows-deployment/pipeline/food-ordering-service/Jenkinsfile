@@ -154,10 +154,7 @@ pipeline {
                     \$port = (Get-Content "\$env:APP_DIR\\.env" |
                         Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', ''
                     \$env:PORT = \$port
-                    pm2 start "\$env:APP_DIR\\dist\\main.js" ``
-                        --name \$env:APP_NAME ``
-                        --cwd  "\$env:APP_DIR" ``
-                        --log  "\$env:APP_DIR\\logs\\app.log"
+                    pm2 start "\$env:APP_DIR\\dist\\main.js" --name \$env:APP_NAME --cwd "\$env:APP_DIR" --log "\$env:APP_DIR\\logs\\app.log"
                     pm2 save
                 """
                 echo "Backend deployed → http://localhost/api"
