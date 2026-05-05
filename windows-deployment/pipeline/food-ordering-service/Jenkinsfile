@@ -86,21 +86,24 @@ pipeline {
                         ]
                     ]]
                 ) {
-                    bat """
-                        (
-                            echo DATABASE_URL=%DATABASE_URL%
-                            echo JWT_SECRET=%JWT_SECRET%
-                            echo JWT_EXPIRES_IN=%JWT_EXPIRES_IN%
-                            echo PORT=%PORT%
-                            echo RABBITMQ_URL=%RABBITMQ_URL%
-                            echo RABBITMQ_EXCHANGE=%RABBITMQ_EXCHANGE%
-                            echo RABBITMQ_PREFETCH=%RABBITMQ_PREFETCH%
-                            echo LOG_LEVEL=%LOG_LEVEL%
-                            echo MINIO_ENDPOINT=%MINIO_ENDPOINT%
-                            echo MINIO_ROOT_USER=%MINIO_ROOT_USER%
-                            echo MINIO_ROOT_PASSWORD=%MINIO_ROOT_PASSWORD%
-                            echo MINIO_BUCKET=%MINIO_BUCKET%
-                        ) > src\\.env
+                    powershell """
+                        \$lines = @(
+                            "DATABASE_URL=\$env:DATABASE_URL",
+                            "JWT_SECRET=\$env:JWT_SECRET",
+                            "JWT_EXPIRES_IN=\$env:JWT_EXPIRES_IN",
+                            "PORT=\$env:PORT",
+                            "RABBITMQ_URL=\$env:RABBITMQ_URL",
+                            "RABBITMQ_EXCHANGE=\$env:RABBITMQ_EXCHANGE",
+                            "RABBITMQ_PREFETCH=\$env:RABBITMQ_PREFETCH",
+                            "LOG_LEVEL=\$env:LOG_LEVEL",
+                            "MINIO_ENDPOINT=\$env:MINIO_ENDPOINT",
+                            "MINIO_ROOT_USER=\$env:MINIO_ROOT_USER",
+                            "MINIO_ROOT_PASSWORD=\$env:MINIO_ROOT_PASSWORD",
+                            "MINIO_BUCKET=\$env:MINIO_BUCKET"
+                        )
+                        \$lines | Set-Content -Path 'src\\.env' -Encoding UTF8
+                        Write-Host "--- .env written ---"
+                        Get-Content 'src\\.env'
                     """
                 }
             }
