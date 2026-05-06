@@ -29,12 +29,7 @@ pipeline {
                         ]
                     ]]
                 ) {
-                    dir('src') {
-                        bat """
-                            git clone -b %BRANCH_BACKEND% ^
-                                https://%GITHUB_USER%:%GITHUB_TOKEN%@github.com/nateesoft/food-ordering-service.git .
-                        """
-                    }
+                    bat "git clone -b %BRANCH_BACKEND% https://%GITHUB_USER%:%GITHUB_TOKEN%@github.com/nateesoft/food-ordering-service.git ."
                 }
             }
         }
@@ -42,19 +37,14 @@ pipeline {
         // ─── Step 2: Install Dependencies ─────────────────────────────────────
         stage('Install') {
             steps {
-                dir('src') {
-                    bat "npm ci"
-                    bat "npx prisma generate"
-                }
+                bat "npm ci"
             }
         }
 
         // ─── Step 3: Test ──────────────────────────────────────────────────────
         stage('Test') {
             steps {
-                dir('src') {
-                    bat "npm test -- --passWithNoTests --forceExit"
-                }
+                bat "npm test -- --passWithNoTests --forceExit"
             }
         }
 
@@ -62,9 +52,7 @@ pipeline {
         // npm run build จะรัน prebuild (prisma generate) โดยอัตโนมัติ
         stage('Build') {
             steps {
-                dir('src') {
-                    bat "npm run build"
-                }
+                bat "npm run build"
             }
         }
 
@@ -98,7 +86,7 @@ pipeline {
                     ]]
                 ) {
                     powershell """
-                        \$lines = @(
+                        @(
                             "DATABASE_URL=\$env:DATABASE_URL",
                             "JWT_SECRET=\$env:JWT_SECRET",
                             "JWT_EXPIRES_IN=\$env:JWT_EXPIRES_IN",
@@ -111,10 +99,7 @@ pipeline {
                             "MINIO_ROOT_USER=\$env:MINIO_ROOT_USER",
                             "MINIO_ROOT_PASSWORD=\$env:MINIO_ROOT_PASSWORD",
                             "MINIO_BUCKET=\$env:MINIO_BUCKET"
-                        )
-                        \$lines | Set-Content -Path 'src\\.env' -Encoding UTF8
-                        Write-Host "--- .env written ---"
-                        Get-Content 'src\\.env'
+                        ) | Set-Content -Path '.env' -Encoding UTF8
                     """
                 }
             }
@@ -123,9 +108,7 @@ pipeline {
         // ─── Step 6: DB Migration ──────────────────────────────────────────────
         stage('DB Migration') {
             steps {
-                dir('src') {
-                    bat "npx prisma migrate deploy"
-                }
+                bat "npx prisma migrate deploy"
             }
         }
 
@@ -133,34 +116,26 @@ pipeline {
         stage('Deploy Backend') {
             steps {
                 // Stop PM2 ก่อน เพื่อปลด lock บน native .node files (เช่น bcrypt.node)
-                powershell """
-                    pm2 delete \$env:APP_NAME 2>&1 | Out-Null
-                    exit 0
-                """
+                powershell "pm2 delete \$env:APP_NAME 2>&1 | Out-Null; exit 0"
 
                 // คัดลอกไฟล์ที่ build แล้วไปยัง APP_DIR
                 bat """
-                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
                     if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
-                    xcopy /E /I /Y src\\dist    "%APP_DIR%\\dist"
-                    xcopy /E /I /Y src\\prisma  "%APP_DIR%\\prisma"
-                    copy /Y src\\prisma.config.ts   "%APP_DIR%\\prisma.config.ts"
-                    copy /Y src\\package.json        "%APP_DIR%\\package.json"
-                    copy /Y src\\package-lock.json   "%APP_DIR%\\package-lock.json"
-                    copy /Y src\\.env                "%APP_DIR%\\.env"
+                    xcopy /E /I /Y dist           "%APP_DIR%\\dist"
+                    xcopy /E /I /Y prisma         "%APP_DIR%\\prisma"
+                    copy /Y prisma.config.ts      "%APP_DIR%\\prisma.config.ts"
+                    copy /Y package.json          "%APP_DIR%\\package.json"
+                    copy /Y package-lock.json     "%APP_DIR%\\package-lock.json"
+                    copy /Y .env                  "%APP_DIR%\\.env"
                 """
 
                 // ติดตั้ง production dependencies ที่ปลายทาง (PM2 หยุดแล้ว ไม่มี file lock)
-                bat """
-                    cd /d "%APP_DIR%" && npm ci --omit=dev
-                """
+                bat "cd /d \"%APP_DIR%\" && npm ci --omit=dev"
 
                 // คัดลอก Prisma generated client (สร้างไว้ตอน Build — prisma CLI ไม่มีใน prod deps)
-                bat """
-                    xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
-                """
+                bat "xcopy /E /I /Y node_modules\\.prisma \"%APP_DIR%\\node_modules\\.prisma\""
 
-                // Start ด้วย PM2 — อ่าน PORT จาก .env ที่ copy ไว้แล้ว แล้ว pass ให้ process โดยตรง
+                // Start ด้วย PM2 — อ่าน PORT จาก .env ที่ copy ไว้แล้ว
                 powershell """
                     \$port = (Get-Content "\$env:APP_DIR\\.env" |
                         Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', ''
@@ -190,7 +165,7 @@ pipeline {
                         try {
                             \$res = Invoke-WebRequest -Uri "http://localhost:\$port/health" -UseBasicParsing -TimeoutSec 5
                             if (\$res.StatusCode -eq 200) {
-                                Write-Host "✅ Health check passed (HTTP 200) after \$(\$i * \$delay)s"
+                                Write-Host "Health check passed (HTTP 200) after \$(\$i * \$delay)s"
                                 \$ok = \$true
                                 break
                             }
@@ -200,7 +175,7 @@ pipeline {
                     }
 
                     if (-not \$ok) {
-                        Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s"
+                        Write-Host "Service did not respond after \$(\$maxRetries * \$delay)s"
                         Write-Host "--- PM2 process info ---"
                         pm2 describe \$env:APP_NAME 2>&1
                         Write-Host "--- App log (last 50 lines) ---"
@@ -219,11 +194,11 @@ pipeline {
 
     post {
         success {
-            echo "✅ Deployment successful → http://localhost/api"
+            echo "Deployment successful → http://localhost/api"
         }
         failure {
             powershell "pm2 restart \$env:APP_NAME 2>&1 | Out-Null; exit 0"
-            echo "❌ Pipeline failed — rolled back to previous process. Check the stage logs above."
+            echo "Pipeline failed — rolled back to previous process. Check the stage logs above."
         }
         always {
             cleanWs()
