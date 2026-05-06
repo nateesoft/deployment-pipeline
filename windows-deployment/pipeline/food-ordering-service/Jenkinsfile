@@ -129,7 +129,16 @@ pipeline {
             }
         }
 
-        // ─── Step 7: Deploy ────────────────────────────────────────────────────
+        // ─── Step 7: DB Seed ──────────────────────────────────────────────────
+        stage('DB Seed') {
+            steps {
+                dir('src') {
+                    bat "npx prisma db seed"
+                }
+            }
+        }
+
+        // ─── Step 9: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
                 // Stop PM2 ก่อน เพื่อปลด lock บน native .node files (เช่น bcrypt.node)
@@ -172,7 +181,7 @@ pipeline {
             }
         }
 
-        // ─── Step 8: Health Check ──────────────────────────────────────────────
+        // ─── Step 10: Health Check ─────────────────────────────────────────────
         stage('Health Check') {
             steps {
                 powershell """
