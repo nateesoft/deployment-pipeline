@@ -176,8 +176,9 @@ pipeline {
         stage('Health Check') {
             steps {
                 powershell """
-                    \$port = (Get-Content "\$env:APP_DIR\\.env" |
-                        Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', ''
+                    \$port = ((Get-Content "\$env:APP_DIR\\.env" |
+                        Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', '').Trim()
+                    Write-Host "PORT = '\$port'"
                     Write-Host "Polling http://localhost:\$port/health ..."
 
                     \$maxRetries = 12
@@ -199,8 +200,16 @@ pipeline {
                     }
 
                     if (-not \$ok) {
-                        Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s — PM2 logs:"
-                        pm2 logs \$env:APP_NAME --lines 50 --nostream 2>&1
+                        Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s"
+                        Write-Host "--- PM2 process info ---"
+                        pm2 describe \$env:APP_NAME 2>&1
+                        Write-Host "--- App log (last 50 lines) ---"
+                        \$logFile = "\$env:APP_DIR\\logs\\app.log"
+                        if (Test-Path \$logFile) {
+                            Get-Content \$logFile -Tail 50
+                        } else {
+                            Write-Host "Log file not found: \$logFile"
+                        }
                         exit 1
                     }
                 """
