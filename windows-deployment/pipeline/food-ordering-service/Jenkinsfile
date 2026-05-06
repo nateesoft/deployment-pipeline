@@ -178,14 +178,29 @@ pipeline {
                 powershell """
                     \$port = (Get-Content "\$env:APP_DIR\\.env" |
                         Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', ''
-                    Write-Host "Waiting for service to start on port \$port..."
-                    Start-Sleep -Seconds 5
-                    try {
-                        \$res = Invoke-WebRequest -Uri "http://localhost:\$port/health" -UseBasicParsing -TimeoutSec 10
-                        if (\$res.StatusCode -ne 200) { throw "Unexpected status: \$(\$res.StatusCode)" }
-                        Write-Host "✅ Health check passed (HTTP \$(\$res.StatusCode))"
-                    } catch {
-                        Write-Host "❌ Health check failed: \$_"
+                    Write-Host "Polling http://localhost:\$port/health ..."
+
+                    \$maxRetries = 12
+                    \$delay      = 5
+                    \$ok         = \$false
+
+                    for (\$i = 1; \$i -le \$maxRetries; \$i++) {
+                        Start-Sleep -Seconds \$delay
+                        try {
+                            \$res = Invoke-WebRequest -Uri "http://localhost:\$port/health" -UseBasicParsing -TimeoutSec 5
+                            if (\$res.StatusCode -eq 200) {
+                                Write-Host "✅ Health check passed (HTTP 200) after \$(\$i * \$delay)s"
+                                \$ok = \$true
+                                break
+                            }
+                        } catch {
+                            Write-Host "Attempt \$i/\$maxRetries — not ready yet (\$(\$_.Exception.Message))"
+                        }
+                    }
+
+                    if (-not \$ok) {
+                        Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s — PM2 logs:"
+                        pm2 logs \$env:APP_NAME --lines 50 --nostream 2>&1
                         exit 1
                     }
                 """
