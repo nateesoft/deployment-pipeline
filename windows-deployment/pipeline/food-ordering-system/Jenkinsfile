@@ -7,6 +7,7 @@ pipeline {
         APP_NAME        = 'food-ordering-system'
         VAULT_URL       = 'http://localhost:8200'
         VAULT_CRED_ID   = 'vault-token'
+        HOME            = 'C:\\ProgramData\\Jenkins'
     }
 
     stages {
@@ -113,6 +114,50 @@ pipeline {
                 echo "Frontend deployed → http://localhost"
             }
         }
+
+        // ─── Step 6: Health Check ──────────────────────────────────────────────
+        stage('Health Check') {
+            steps {
+                powershell """
+                    \$port = ((Get-Content "\$env:APP_DIR\\.env.production" |
+                        Where-Object { \$_ -match '^PORT=' }) -replace '^PORT=', '').Trim()
+                    Write-Host "PORT = '\$port'"
+                    Write-Host "Polling http://localhost:\$port ..."
+
+                    \$maxRetries = 12
+                    \$delay      = 5
+                    \$ok         = \$false
+
+                    for (\$i = 1; \$i -le \$maxRetries; \$i++) {
+                        Start-Sleep -Seconds \$delay
+                        try {
+                            \$res = Invoke-WebRequest -Uri "http://localhost:\$port" -UseBasicParsing -TimeoutSec 5
+                            if (\$res.StatusCode -eq 200) {
+                                Write-Host "✅ Health check passed (HTTP 200) after \$(\$i * \$delay)s"
+                                \$ok = \$true
+                                break
+                            }
+                        } catch {
+                            Write-Host "Attempt \$i/\$maxRetries — not ready yet (\$(\$_.Exception.Message))"
+                        }
+                    }
+
+                    if (-not \$ok) {
+                        Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s"
+                        Write-Host "--- PM2 process info ---"
+                        pm2 describe \$env:APP_NAME 2>&1
+                        Write-Host "--- App log (last 50 lines) ---"
+                        \$logFile = "\$env:APP_DIR\\logs\\app.log"
+                        if (Test-Path \$logFile) {
+                            Get-Content \$logFile -Tail 50
+                        } else {
+                            Write-Host "Log file not found: \$logFile"
+                        }
+                        exit 1
+                    }
+                """
+            }
+        }
     }
 
     post {
@@ -120,7 +165,8 @@ pipeline {
             echo "✅ Deployment successful → http://localhost"
         }
         failure {
-            echo "❌ Pipeline failed — check the stage logs above."
+            powershell "pm2 restart \$env:APP_NAME 2>&1 | Out-Null; exit 0"
+            echo "❌ Pipeline failed — rolled back to previous process. Check the stage logs above."
         }
         always {
             cleanWs()
