@@ -43,6 +43,7 @@ pipeline {
             steps {
                 dir('src') {
                     bat "npm ci"
+                    bat "npx prisma generate"
                 }
             }
         }
