@@ -6,7 +6,6 @@ pipeline {
         BRANCH   = 'main'
         APP_DIR  = 'D:\\ICS-Projects\\apps\\import-xlsx-tranout'
         APP_NAME = 'import-xlsx-tranout'
-        HOME     = 'C:\\ProgramData\\Jenkins'
     }
 
     stages {
@@ -92,38 +91,32 @@ pipeline {
         // ─── Step 5: Deploy ────────────────────────────────────────────────────
         stage('Deploy') {
             steps {
-                powershell """
-                    New-Item -ItemType Directory -Force -Path "\$env:APP_DIR"      | Out-Null
-                    New-Item -ItemType Directory -Force -Path "\$env:APP_DIR\\logs" | Out-Null
-                    robocopy "src\\.next\\standalone" "\$env:APP_DIR" /E /MIR /MT:8
-                    if (\$LASTEXITCODE -ge 8) { exit 1 }
-                    Copy-Item -Path "src\\.env.production" -Destination "\$env:APP_DIR\\.env.production" -Force
+                bat """
+                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
+                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
                 """
 
-                powershell """
-                    Write-Host "=== APP_DIR: \$env:APP_DIR ==="
-                    Write-Host "=== server.js exists: \$(Test-Path \$env:APP_DIR\\server.js) ==="
-                    Get-ChildItem "\$env:APP_DIR" -Name | Select-Object -First 20
+                // หยุด PM2 ก่อน เพื่อ release file locks ให้ robocopy copy ได้
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && pm2 stop %APP_NAME%
+                    exit /b 0
+                """
 
-                    pm2 delete \$env:APP_NAME 2>&1 | Out-Null
+                bat """
+                    robocopy src\\.next\\standalone "%APP_DIR%" /E /MIR /MT:8
+                    if %errorlevel% GEQ 8 exit /b 1
+                    copy /Y src\\.env.production "%APP_DIR%\\.env.production"
+                """
 
-                    pm2 start "\$env:APP_DIR\\server.js" `
-                        --name \$env:APP_NAME `
-                        --cwd "\$env:APP_DIR" `
-                        --out "\$env:APP_DIR\\logs\\out.log" `
-                        --error "\$env:APP_DIR\\logs\\error.log"
-
-                    if (\$LASTEXITCODE -ne 0) {
-                        Write-Host "=== pm2 start failed (exit \$LASTEXITCODE) ==="
-                        exit 1
-                    }
-
-                    Start-Sleep -Seconds 3
-                    pm2 describe \$env:APP_NAME
-                    Write-Host "=== app log (last 30 lines) ==="
-                    if (Test-Path "\$env:APP_DIR\\logs\\error.log") {
-                        Get-Content "\$env:APP_DIR\\logs\\error.log" -Tail 30
-                    }
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && (
+                        pm2 restart %APP_NAME%
+                    ) || (
+                        pm2 start "%APP_DIR%\\server.js" ^
+                            --name %APP_NAME% ^
+                            --cwd "%APP_DIR%" ^
+                            --log "%APP_DIR%\\logs\\app.log"
+                    )
                     pm2 save
                 """
                 echo "Deployed → http://localhost"
