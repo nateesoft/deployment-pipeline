@@ -106,16 +106,16 @@ pipeline {
                     robocopy src\\.next\\standalone "%APP_DIR%" /E /MIR /MT:8
                     if %errorlevel% GEQ 8 exit /b 1
                     copy /Y src\\.env.production "%APP_DIR%\\.env.production"
+                    copy /Y src\\ecosystem.config.cjs "%APP_DIR%\\ecosystem.config.cjs"
                 """
 
                 bat """
                     pm2 describe %APP_NAME% >nul 2>&1 && (
                         pm2 restart %APP_NAME%
                     ) || (
-                        pm2 start "%APP_DIR%\\server.js" ^
-                            --name %APP_NAME% ^
-                            --cwd "%APP_DIR%" ^
-                            --log "%APP_DIR%\\logs\\app.log"
+                        pm2 start "%APP_DIR%\\ecosystem.config.cjs" ^
+                            --only %APP_NAME% ^
+                            --env production
                     )
                     pm2 save
                 """
