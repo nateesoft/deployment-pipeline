@@ -94,6 +94,15 @@ pipeline {
                 bat """
                     if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
                     if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
+                """
+
+                // หยุด PM2 ก่อน เพื่อ release file locks ให้ robocopy copy ได้
+                bat """
+                    pm2 describe %APP_NAME% >nul 2>&1 && pm2 stop %APP_NAME%
+                    exit /b 0
+                """
+
+                bat """
                     robocopy src\\.next\\standalone "%APP_DIR%" /E /MIR /MT:8
                     if %errorlevel% GEQ 8 exit /b 1
                     copy /Y src\\.env.production "%APP_DIR%\\.env.production"
