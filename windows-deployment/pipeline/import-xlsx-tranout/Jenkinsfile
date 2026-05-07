@@ -6,6 +6,7 @@ pipeline {
         BRANCH   = 'main'
         APP_DIR  = 'D:\\ICS-Projects\\apps\\import-xlsx-tranout'
         APP_NAME = 'import-xlsx-tranout'
+        HOME     = 'C:\\ProgramData\\Jenkins'
     }
 
     stages {
@@ -100,12 +101,29 @@ pipeline {
                 """
 
                 powershell """
+                    Write-Host "=== APP_DIR: \$env:APP_DIR ==="
+                    Write-Host "=== server.js exists: \$(Test-Path \$env:APP_DIR\\server.js) ==="
+                    Get-ChildItem "\$env:APP_DIR" -Name | Select-Object -First 20
+
                     pm2 delete \$env:APP_NAME 2>&1 | Out-Null
+
                     pm2 start "\$env:APP_DIR\\server.js" `
                         --name \$env:APP_NAME `
                         --cwd "\$env:APP_DIR" `
                         --out "\$env:APP_DIR\\logs\\out.log" `
                         --error "\$env:APP_DIR\\logs\\error.log"
+
+                    if (\$LASTEXITCODE -ne 0) {
+                        Write-Host "=== pm2 start failed (exit \$LASTEXITCODE) ==="
+                        exit 1
+                    }
+
+                    Start-Sleep -Seconds 3
+                    pm2 describe \$env:APP_NAME
+                    Write-Host "=== app log (last 30 lines) ==="
+                    if (Test-Path "\$env:APP_DIR\\logs\\error.log") {
+                        Get-Content "\$env:APP_DIR\\logs\\error.log" -Tail 30
+                    }
                     pm2 save
                 """
                 echo "Deployed → http://localhost"
