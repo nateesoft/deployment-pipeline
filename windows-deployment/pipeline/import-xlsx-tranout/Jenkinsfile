@@ -100,17 +100,19 @@ pipeline {
         // ─── Step 5: Deploy ────────────────────────────────────────────────────
         stage('Deploy') {
             steps {
-                bat """
-                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
-                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
+                // สร้าง directory ปลายทาง
+                powershell """
+                    New-Item -ItemType Directory -Force -Path "\$env:APP_DIR"       | Out-Null
+                    New-Item -ItemType Directory -Force -Path "\$env:APP_DIR\\logs"  | Out-Null
                 """
 
-                // หยุด PM2 ก่อน เพื่อ release file locks ให้ robocopy copy ได้
-                bat """
-                    pm2 describe %APP_NAME% >nul 2>&1 && pm2 stop %APP_NAME%
-                    exit /b 0
+                // ลบ PM2 process ก่อน เพื่อ release file locks ให้ robocopy copy ได้
+                powershell """
+                    pm2 delete \$env:APP_NAME 2>&1 | Out-Null
+                    exit 0
                 """
 
+                // Copy standalone build ไปยัง APP_DIR
                 bat """
                     if not exist "src\\.next\\standalone\\server.js" (
                         echo ERROR: src\\.next\\standalone\\server.js not found
@@ -127,15 +129,11 @@ pipeline {
                     copy /Y src\\ecosystem.config.cjs "%APP_DIR%\\ecosystem.config.cjs"
                 """
 
-                bat """
-                    pm2 describe %APP_NAME% >nul 2>&1
-                    if %errorlevel% equ 0 (
-                        pm2 restart %APP_NAME%
-                    ) else (
-                        pm2 start "%APP_DIR%\\ecosystem.config.cjs" ^
-                            --only %APP_NAME% ^
-                            --env production
-                    )
+                // Start PM2 ด้วย ecosystem config
+                powershell """
+                    pm2 start "\$env:APP_DIR\\ecosystem.config.cjs" `
+                        --only \$env:APP_NAME `
+                        --env production
                     pm2 save
                 """
                 echo "Deployed → http://localhost"
