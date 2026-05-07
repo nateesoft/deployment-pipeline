@@ -91,23 +91,24 @@ pipeline {
         // ─── Step 5: Deploy ────────────────────────────────────────────────────
         stage('Deploy') {
             steps {
-                bat """
-                    if not exist "%APP_DIR%"       mkdir "%APP_DIR%"
-                    if not exist "%APP_DIR%\\logs" mkdir "%APP_DIR%\\logs"
-                    robocopy src\\.next\\standalone "%APP_DIR%" /E /MIR /MT:8
-                    if %errorlevel% GEQ 8 exit /b 1
-                    copy /Y src\\.env.production "%APP_DIR%\\.env.production"
+                powershell """
+                    New-Item -ItemType Directory -Force -Path "\$env:APP_DIR"      | Out-Null
+                    New-Item -ItemType Directory -Force -Path "\$env:APP_DIR\\logs" | Out-Null
+                    robocopy "src\\.next\\standalone" "\$env:APP_DIR" /E /MIR /MT:8
+                    if (\$LASTEXITCODE -ge 8) { exit 1 }
+                    Copy-Item -Path "src\\.env.production" -Destination "\$env:APP_DIR\\.env.production" -Force
                 """
 
-                bat """
-                    pm2 describe %APP_NAME% >nul 2>&1 && (
-                        pm2 restart %APP_NAME%
-                    ) || (
-                        pm2 start "%APP_DIR%\\server.js" ^
-                            --name %APP_NAME% ^
-                            --cwd "%APP_DIR%" ^
-                            --log "%APP_DIR%\\logs\\app.log"
-                    )
+                powershell """
+                    pm2 describe \$env:APP_NAME 2>&1 | Out-Null
+                    if (\$LASTEXITCODE -eq 0) {
+                        pm2 restart \$env:APP_NAME
+                    } else {
+                        pm2 start "\$env:APP_DIR\\server.js" `
+                            --name \$env:APP_NAME `
+                            --cwd "\$env:APP_DIR" `
+                            --log "\$env:APP_DIR\\logs\\app.log"
+                    }
                     pm2 save
                 """
                 echo "Deployed → http://localhost"
