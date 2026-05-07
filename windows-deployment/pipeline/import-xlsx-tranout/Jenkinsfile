@@ -82,6 +82,15 @@ pipeline {
                     bat "npx next build"
                 }
                 bat """
+                    if not exist "src\\.next\\standalone\\server.js" (
+                        echo.
+                        echo ============================================================
+                        echo ERROR: src\\.next\\standalone\\server.js not found
+                        echo next build did not produce standalone output
+                        echo Fix: add output: 'standalone' to next.config.js
+                        echo ============================================================
+                        exit /b 1
+                    )
                     xcopy /E /I /Y src\\.next\\static src\\.next\\standalone\\.next\\static
                     xcopy /E /I /Y src\\public        src\\.next\\standalone\\public
                 """
