@@ -170,14 +170,13 @@ pipeline {
                     xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
                 """
 
-                // Start ด้วย PM2 — ใช้ --out/--error แยกกัน เพื่อให้ pm2 logs ทำงานได้
+                // Start ด้วย PM2 — ใช้ --output/--error แยกกัน เพื่อให้ pm2 logs ทำงานได้
                 powershell """
                     pm2 start "\$env:APP_DIR\\dist\\main.js" `
                         --name \$env:APP_NAME `
                         --cwd "\$env:APP_DIR" `
-                        --out "\$env:APP_DIR\\logs\\out.log" `
-                        --error "\$env:APP_DIR\\logs\\error.log" `
-                        --env-file "\$env:APP_DIR\\.env"
+                        --output "\$env:APP_DIR\\logs\\out.log" `
+                        --error "\$env:APP_DIR\\logs\\error.log"
                     pm2 save
                 """
                 echo "Backend deployed → http://localhost/api"
