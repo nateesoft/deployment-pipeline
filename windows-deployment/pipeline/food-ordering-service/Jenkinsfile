@@ -192,7 +192,7 @@ pipeline {
                     Write-Host "PORT = '\$port'"
                     Write-Host "Polling http://localhost:\$port/health ..."
 
-                    \$maxRetries = 12
+                    \$maxRetries = 30
                     \$delay      = 5
                     \$ok         = \$false
 
@@ -214,13 +214,12 @@ pipeline {
                         Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s"
                         Write-Host "--- PM2 process info ---"
                         pm2 describe \$env:APP_NAME 2>&1
-                        Write-Host "--- App log (last 50 lines) ---"
-                        \$logFile = "\$env:APP_DIR\\logs\\app.log"
-                        if (Test-Path \$logFile) {
-                            Get-Content \$logFile -Tail 50
-                        } else {
-                            Write-Host "Log file not found: \$logFile"
-                        }
+                        Write-Host "--- stdout log (last 80 lines) ---"
+                        \$outLog = "\$env:APP_DIR\\logs\\out.log"
+                        if (Test-Path \$outLog) { Get-Content \$outLog -Tail 80 } else { Write-Host "Not found: \$outLog" }
+                        Write-Host "--- error log (last 80 lines) ---"
+                        \$errLog = "\$env:APP_DIR\\logs\\error.log"
+                        if (Test-Path \$errLog) { Get-Content \$errLog -Tail 80 } else { Write-Host "Not found: \$errLog" }
                         exit 1
                     }
                 """
