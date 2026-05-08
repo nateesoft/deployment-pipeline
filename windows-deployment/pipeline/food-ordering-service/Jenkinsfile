@@ -142,9 +142,9 @@ pipeline {
         // ─── Step 9: Deploy ────────────────────────────────────────────────────
         stage('Deploy Backend') {
             steps {
-                // Stop PM2 ก่อน เพื่อปลด lock บน native .node files (เช่น bcrypt.node)
+                // Stop NSSM service ก่อน เพื่อปลด lock บน native .node files (เช่น bcrypt.node)
                 powershell """
-                    pm2 delete \$env:APP_NAME 2>&1 | Out-Null
+                    nssm stop \$env:APP_NAME 2>&1 | Out-Null
                     exit 0
                 """
 
@@ -160,7 +160,7 @@ pipeline {
                     copy /Y src\\.env                "%APP_DIR%\\.env"
                 """
 
-                // ติดตั้ง production dependencies ที่ปลายทาง (PM2 หยุดแล้ว ไม่มี file lock)
+                // ติดตั้ง production dependencies ที่ปลายทาง (service หยุดแล้ว ไม่มี file lock)
                 bat """
                     cd /d "%APP_DIR%" && npm ci --omit=dev
                 """
@@ -170,14 +170,17 @@ pipeline {
                     xcopy /E /I /Y "src\\node_modules\\.prisma" "%APP_DIR%\\node_modules\\.prisma"
                 """
 
-                // Start ด้วย PM2 — ใช้ --output/--error แยกกัน เพื่อให้ pm2 logs ทำงานได้
+                // Register เป็น Windows Service ด้วย NSSM — auto-start ทุกครั้งที่ boot
                 powershell """
-                    pm2 start "\$env:APP_DIR\\dist\\main.js" `
-                        --name \$env:APP_NAME `
-                        --cwd "\$env:APP_DIR" `
-                        --output "\$env:APP_DIR\\logs\\out.log" `
-                        --error "\$env:APP_DIR\\logs\\error.log"
-                    pm2 save
+                    \$nodePath = (Get-Command node.exe).Source
+                    nssm remove \$env:APP_NAME confirm 2>&1 | Out-Null
+                    nssm install \$env:APP_NAME \$nodePath
+                    nssm set \$env:APP_NAME AppParameters "\$env:APP_DIR\\dist\\main.js"
+                    nssm set \$env:APP_NAME AppDirectory  "\$env:APP_DIR"
+                    nssm set \$env:APP_NAME AppStdout     "\$env:APP_DIR\\logs\\out.log"
+                    nssm set \$env:APP_NAME AppStderr     "\$env:APP_DIR\\logs\\error.log"
+                    nssm set \$env:APP_NAME Start         SERVICE_AUTO_START
+                    nssm start \$env:APP_NAME
                 """
                 echo "Backend deployed → http://localhost/api"
             }
@@ -212,8 +215,8 @@ pipeline {
 
                     if (-not \$ok) {
                         Write-Host "❌ Service did not respond after \$(\$maxRetries * \$delay)s"
-                        Write-Host "--- PM2 process info ---"
-                        pm2 describe \$env:APP_NAME 2>&1
+                        Write-Host "--- NSSM service status ---"
+                        nssm status \$env:APP_NAME 2>&1
                         Write-Host "--- stdout log (last 80 lines) ---"
                         \$outLog = "\$env:APP_DIR\\logs\\out.log"
                         if (Test-Path \$outLog) { Get-Content \$outLog -Tail 80 } else { Write-Host "Not found: \$outLog" }
@@ -232,7 +235,7 @@ pipeline {
             echo "✅ Deployment successful → http://localhost/api"
         }
         failure {
-            powershell "pm2 restart \$env:APP_NAME 2>&1 | Out-Null; exit 0"
+            powershell "nssm restart \$env:APP_NAME 2>&1 | Out-Null; exit 0"
             echo "❌ Pipeline failed — rolled back to previous process. Check the stage logs above."
         }
         always {

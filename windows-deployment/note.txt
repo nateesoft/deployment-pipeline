@@ -330,12 +330,13 @@ ui       = true
   node --version
   npm  --version
 
-  # ติดตั้ง PM2 (Process Manager สำหรับ Node.js)
+  # ติดตั้ง PM2 (Process Manager สำหรับ Node.js — ใช้สำหรับ pm2 logs/monit)
   npm install -g pm2
-  npm install -g pm2-windows-startup
 
-  # ตั้งค่า PM2 ให้ auto start เมื่อ Windows เริ่มต้น
-  pm2-startup install
+  # หมายเหตุ: ไม่ใช้ pm2-windows-startup อีกต่อไป
+  # Pipeline ใช้ NSSM (ติดตั้งแล้วในขั้นตอนที่ 1.4) เพื่อ register แต่ละ app
+  # เป็น Windows Service แบบ SERVICE_AUTO_START โดยตรง ซึ่งน่าเชื่อถือกว่า
+  # เพราะ start ทันทีที่ Windows boot โดยไม่ขึ้นกับ user login หรือ HOME path
 
   # สร้าง folder สำหรับ Application
   New-Item -ItemType Directory -Path "D:\ICS-Projects\apps\food-ordering-service\logs" -Force
@@ -459,7 +460,8 @@ ui       = true
 
   # Services ต่อไปนี้ถูกตั้งเป็น Automatic จะ start เองอัตโนมัติ:
   #   postgresql-x64-15, RabbitMQ, Redis, MinIO, elasticsearch-service-x64,
-  #   Kibana, filebeat, Vault*, Jenkins, Nginx, PM2
+  #   Kibana, filebeat, Vault*, Jenkins, Nginx
+  #   food-ordering-service, food-ordering-system  ← registered ด้วย NSSM โดย pipeline
 
   # * Vault ต้อง Unseal ทุกครั้งที่ restart
   $env:VAULT_ADDR = "http://127.0.0.1:8200"
@@ -467,14 +469,16 @@ ui       = true
   vault operator unseal <Key 2>
   vault operator unseal <Key 3>
 
-  # ตรวจสอบว่า PM2 app กำลังทำงาน
-  pm2 list
+  # ตรวจสอบสถานะ app services
+  nssm status food-ordering-service
+  nssm status food-ordering-system
 
   # ถ้า app ไม่ทำงาน ให้ start ใหม่
-  pm2 start all
+  nssm start food-ordering-service
+  nssm start food-ordering-system
 
   # ตรวจสอบสถานะ Windows Services ทั้งหมด
-  Get-Service | Where-Object { $_.DisplayName -match "PostgreSQL|RabbitMQ|Redis|MinIO|Elastic|Kibana|Vault|Jenkins|Nginx" }
+  Get-Service | Where-Object { $_.DisplayName -match "PostgreSQL|RabbitMQ|Redis|MinIO|Elastic|Kibana|Vault|Jenkins|Nginx|food-ordering" }
 
 ================================================================
   Environment Variables — food-ordering-service (Windows)
