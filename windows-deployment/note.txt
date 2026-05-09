@@ -384,39 +384,86 @@ ui       = true
 ================================================================
 
   choco install nginx -y
-  # Nginx จะถูกติดตั้งที่ C:\tools\nginx\
+  # Nginx จะถูกติดตั้งที่ C:\tools\nginx-x.x.x\
 
-  # แก้ไขไฟล์ C:\tools\nginx\conf\nginx.conf
+  # แก้ไขไฟล์ C:\tools\nginx-1.29.8\conf\nginx.conf
   # เปิดด้วย Notepad แล้วแทนที่เนื้อหาด้วย config ด้านล่าง:
-  #
-  
-  worker_processes auto;
-  events { worker_connections 1024; }
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  nginx.conf (C:\tools\nginx-1.29.8\conf\nginx.conf)         │
+  └─────────────────────────────────────────────────────────────┘
+
+  worker_processes  auto;
+
+  events {
+      worker_connections  1024;
+  }
 
   http {
-    include       mime.types;
-    default_type  application/octet-stream;
-  
-    upstream frontend { server 127.0.0.1:3000; }
-    upstream backend  { server 127.0.0.1:5555; }
-  
-    server {
-      listen 80;
-      server_name _;
-  
-      location /api/ {
-        proxy_pass         http://backend/api/;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
+      include       mime.types;
+      default_type  application/octet-stream;
+      sendfile      on;
+      keepalive_timeout 65;
+
+      upstream import_tranout { server 127.0.0.1:3000; }
+      upstream frontend       { server 127.0.0.1:3333; }
+      upstream backend        { server 127.0.0.1:5555; }
+
+      server {
+          listen      80;
+          server_name _;
+
+          location /api/ {
+              proxy_pass         http://backend;
+              proxy_set_header   Host $host;
+              proxy_set_header   X-Real-IP $remote_addr;
+              proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          }
+
+          # ⚠ Next.js ที่กำหนด basePath="/food-ordering" ใน next.config.js
+          #   ให้ใช้ location โดยไม่มี trailing slash (/food-ordering ไม่ใช่ /food-ordering/)
+          #   เพราะ Next.js จะ redirect /food-ordering/ → /food-ordering (308)
+          #   และต้องเพิ่ม Upgrade/Connection header สำหรับ WebSocket (socket.io)
+          location /food-ordering {
+              proxy_pass         http://frontend/food-ordering;
+              proxy_http_version 1.1;
+              proxy_set_header   Upgrade $http_upgrade;
+              proxy_set_header   Connection "upgrade";
+              proxy_set_header   Host $host;
+              proxy_set_header   X-Real-IP $remote_addr;
+              proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          }
+
+          location / {
+              proxy_pass         http://import_tranout;
+              proxy_set_header   Host $host;
+              proxy_set_header   X-Real-IP $remote_addr;
+              proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+          }
       }
-  
-      location / {
-        proxy_pass         http://frontend/;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-      }
-     }
-   }
+  }
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │  ข้อควรระวัง: Next.js + nginx basePath                      │
+  └─────────────────────────────────────────────────────────────┘
+
+  ถ้า Next.js app กำหนด basePath ใน next.config.js เช่น:
+    basePath: '/food-ordering'
+
+  ต้องตั้งค่า nginx ให้ถูกต้องดังนี้:
+
+  1. location ต้องไม่มี trailing slash
+     ✅  location /food-ordering  { ... }
+     ❌  location /food-ordering/ { ... }   ← Next.js redirect 308 แล้วหลุด
+
+  2. proxy_pass ต้องระบุ path ตรงกับ basePath และไม่มี trailing slash
+     ✅  proxy_pass http://frontend/food-ordering;
+     ❌  proxy_pass http://frontend/;         ← path ไม่ตรงกับ basePath
+
+  3. เพิ่ม WebSocket headers ถ้าใช้ socket.io หรือ Next.js Fast Refresh
+     proxy_http_version 1.1;
+     proxy_set_header   Upgrade $http_upgrade;
+     proxy_set_header   Connection "upgrade";
 
   # ติดตั้ง Nginx เป็น Windows Service ด้วย NSSM
   nssm install Nginx "C:\tools\nginx-1.29.8\nginx.exe"
@@ -424,8 +471,11 @@ ui       = true
   nssm set Nginx Start SERVICE_AUTO_START
   nssm start Nginx
 
-  # ตรวจสอบ config ก่อน start
-  & "C:\tools\nginx-1.29.8\nginx.exe" -t
+  # ตรวจสอบ config syntax ก่อน start (ต้องระบุ -p ให้ถูกต้อง)
+  & "C:\tools\nginx-1.29.8\nginx.exe" -p "C:\tools\nginx-1.29.8" -t
+
+  # Reload config โดยไม่ต้อง restart service
+  nssm restart Nginx
 
   # เปิดแอป: http://localhost
 
