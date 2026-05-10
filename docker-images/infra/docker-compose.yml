@@ -1,51 +1,51 @@
 services:
-  food-ordering-db:
+  postgres:
     image: postgres:15-alpine
-    container_name: food-ordering-db
+    container_name: postgres
     restart: unless-stopped
     ports:
       - "5432:5432"
     environment:
       - POSTGRES_USER=${POSTGRES_USER:-postgres}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
-      - POSTGRES_DB=${POSTGRES_DB:-food_ordering}
+      - POSTGRES_DB=${POSTGRES_DB:-app_db}
     volumes:
-      - food_ordering_db_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql/data
     networks:
-      - food-ordering-network
+      - app-network
 
-  food-ordering-rabbitmq:
+  rabbitmq:
     image: rabbitmq:3.13-management-alpine
-    container_name: food-ordering-rabbitmq
+    container_name: rabbitmq
     restart: unless-stopped
-    hostname: food-ordering-rabbitmq
+    hostname: rabbitmq
     ports:
       - "5673:5672"
       - "15673:15672"
     environment:
-      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-nathee}
-      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-nathee}
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-admin}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-admin}
       - RABBITMQ_DEFAULT_VHOST=/
     volumes:
-      - food_ordering_rabbitmq_data:/var/lib/rabbitmq
+      - rabbitmq_data:/var/lib/rabbitmq
     networks:
-      - food-ordering-network
+      - app-network
 
-  food-ordering-redis:
+  redis:
     image: redis:7-alpine
-    container_name: food-ordering-redis
+    container_name: redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     command: redis-server --maxmemory 256mb --maxmemory-policy allkeys-lru
     volumes:
-      - food_ordering_redis_data:/data
+      - redis_data:/data
     networks:
-      - food-ordering-network
+      - app-network
 
-  food-ordering-minio:
+  minio:
     image: minio/minio:latest
-    container_name: food-ordering-minio
+    container_name: minio
     restart: unless-stopped
     ports:
       - "9000:9000"
@@ -54,22 +54,22 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     volumes:
-      - food_ordering_minio_data:/data
+      - minio_data:/data
     command: server /data --console-address ":9001"
     networks:
-      - food-ordering-network
+      - app-network
 
 volumes:
-  food_ordering_db_data:
+  postgres_data:
     driver: local
-  food_ordering_rabbitmq_data:
+  rabbitmq_data:
     driver: local
-  food_ordering_redis_data:
+  redis_data:
     driver: local
-  food_ordering_minio_data:
+  minio_data:
     driver: local
 
 networks:
-  food-ordering-network:
+  app-network:
     external: true
-    name: food-ordering-network
+    name: app-network
