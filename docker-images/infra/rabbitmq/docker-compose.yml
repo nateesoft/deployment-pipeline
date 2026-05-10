@@ -1,0 +1,26 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: rabbitmq
+    restart: unless-stopped
+    hostname: rabbitmq
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=${RABBITMQ_USER:-admin}
+      - RABBITMQ_DEFAULT_PASS=${RABBITMQ_PASS:-admin}
+      - RABBITMQ_DEFAULT_VHOST=/
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - rabbitmq-network
+
+volumes:
+  rabbitmq_data:
+    driver: local
+
+networks:
+  rabbitmq-network:
+    external: true
+    name: rabbitmq-network
