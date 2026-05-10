@@ -27,6 +27,23 @@ services:
     networks:
       - food-ordering-network
 
+  food-ordering-logstash:
+    image: docker.elastic.co/logstash/logstash:8.13.0
+    container_name: food-ordering-logstash
+    restart: unless-stopped
+    ports:
+      - "5044:5044"
+      - "9600:9600"
+    environment:
+      - LS_JAVA_OPTS=-Xms256m -Xmx256m
+    volumes:
+      - ./logstash/pipeline:/usr/share/logstash/pipeline:ro
+      - ./logstash/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
+    depends_on:
+      - food-ordering-elasticsearch
+    networks:
+      - food-ordering-network
+
   food-ordering-filebeat:
     image: docker.elastic.co/beats/filebeat:8.13.0
     container_name: food-ordering-filebeat
@@ -37,7 +54,7 @@ services:
       - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on:
-      - food-ordering-elasticsearch
+      - food-ordering-logstash
     networks:
       - food-ordering-network
 

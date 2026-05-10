@@ -21,10 +21,8 @@ filebeat.inputs:
 processors:
   - add_host_metadata: ~
 
-output.elasticsearch:
-  hosts: ["http://food-ordering-elasticsearch:9200"]
-  indices:
-    - index: "food-ordering-%{+yyyy.MM.dd}"
+output.logstash:
+  hosts: ["food-ordering-logstash:5044"]
 
 setup.kibana:
   host: "http://food-ordering-kibana:5601"
