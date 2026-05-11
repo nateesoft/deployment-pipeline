@@ -27,6 +27,19 @@ services:
     networks:
       - app-network
 
+  minio-init:
+    image: minio/mc
+    depends_on:
+      - minio
+    entrypoint: >
+      /bin/sh -c "
+      sleep 5;
+      mc alias set myminio http://minio:9000 minioadmin minioadmin;
+      mc mb myminio/food-images;
+      mc anonymous set public myminio/food-images;
+      exit 0;
+      "
+
 volumes:
   redis_data:
     driver: local
